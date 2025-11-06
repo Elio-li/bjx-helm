@@ -181,7 +181,7 @@ pipeline {
                         def count = sh(
                             script: """
                                 kubectl get pods -n ${NS} -l app=${RELEASE} -o jsonpath='{range .items[*]}{.metadata.name}::{.status.containerStatuses[0].image}{"\\n"}{end}' 2>/dev/null \
-                                | awk -F '::' '{print \$2}' | grep -c '${BUILD_TAG}' |tail -n 1  || echo 0
+                                | awk -F '::' '{print \$2}' | grep -c '${BUILD_TAG}' || echo 0
                             """,
                             returnStdout: true
                         ).trim().toInteger()
@@ -275,9 +275,7 @@ pipeline {
                         )
                         if (action == '回滚') {
                             rollbackDeployment(RELEASE, NS)
-                            sh "kubectl rollout resume deployment/${RELEASE} -n ${NS}"
                             error("已回滚（因为新 Pod 未就绪）")
-                            
                         } else {
                             echo "你选择了继续等待/人工处理，请手动检查问题并在准备好后手动 resume（或在 Jenkins 中继续）。"
                             // 保持 paused 状态，结束 pipeline（或继续由人工在集群上处理）
