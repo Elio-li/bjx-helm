@@ -118,22 +118,87 @@ pipeline {
                 archiveArtifacts artifacts: "${env.jar_path}", fingerprint: true
             }
         }
+        // stage('Helm Deploy') {
+        //     when { expression { params.DEPLOY_TYPE == 'Deploy' } }
+        //     steps {
+        //         sh """
+        //         rm -rf bjx-helm
+        //         git clone https://github.com/Elio-li/bjx-helm.git   
+        //         kubectl apply -f  ./bjx-helm/init/all-secret.yaml -n   ${env.NAMESPACE}
+        //         sed -i "s|^  tag:.*|  tag: ${env.BUILD_VERSION}|" ${env.CHAT_DIR}/urule-ghana-test.yaml
+        //         sed -i "s|^appVersion:.*|appVersion: \"${env.BUILD_VERSION}\"|" ${env.CHAT_DIR}/Chart.yaml
+        //         helm upgrade --install ${params.deployment_name}  ${env.CHAT_DIR} -f ${env.CHAT_DIR}/urule-ghana-test.yaml --namespace ${env.NAMESPACE}
+                
+        //         """
+        //         waitForPodsRunning("${env.NAMESPACE}", "app=${params.deployment_name}", 600, 10)
+        //     }
+        // }
         stage('Helm Deploy') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
-                sh """
-                rm -rf bjx-helm
-                git clone https://github.com/Elio-li/bjx-helm.git   
-                kubectl apply -f  ./bjx-helm/init/all-secret.yaml -n   ${env.NAMESPACE}
-                sed -i "s|^  tag:.*|  tag: ${env.BUILD_VERSION}|" ${env.CHAT_DIR}/urule-ghana-test.yaml
-                sed -i "s|^appVersion:.*|appVersion: \"${env.BUILD_VERSION}\"|" ${env.CHAT_DIR}/Chart.yaml
-                helm upgrade --install ${params.deployment_name}  ${env.CHAT_DIR} -f ${env.CHAT_DIR}/urule-ghana-test.yaml --namespace ${env.NAMESPACE}
-                
-                """
-                waitForPodsRunning("${env.NAMESPACE}", "app=${params.deployment_name}", 600, 10)
+                script {
+                    def RELEASE = params.deployment_name
+                    def NS = env.NAMESPACE
+                    def CHART_DIR = env.CHAT_DIR
+                    def VALUES_FILE = "${CHART_DIR}/urule-ghana-test.yaml"
+
+                    // 暂停滚动更新
+                    sh """
+                        echo "⏸️ 暂停 Deployment 滚动更新：${RELEASE}"
+                        kubectl rollout pause deployment ${RELEASE} -n ${NS} || true
+                    """
+
+                    // 部署新版本
+                    sh """
+                        echo "🚀 执行 Helm 升级..."
+                        helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS}
+                        echo "✅ Deployment 已更新，但滚动更新暂停中"
+                    """
+
+                    // 等待第一个 Pod Ready
+                    echo "⏳ 等待第一个新 Pod Ready..."
+                    sh """
+                        for i in {1..60}; do
+                            READY=\$(kubectl get pods -n ${NS} -l app=${RELEASE} \
+                                -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
+                            if [ "\$READY" = "true" ]; then
+                                echo "✅ 第一个 Pod 已启动并就绪"
+                                exit 0
+                            fi
+                            echo "⏳ 等待中 (\$i/60)..."
+                            sleep 5
+                        done
+                        echo "❌ 第一个 Pod 超时未 Ready"
+                        exit 1
+                    """
+
+                    // 人工判断
+                    def userInput = input(
+                        message: "第一个 Pod 已启动，请确认是否继续滚动更新？",
+                        parameters: [choice(name: 'action', choices: ['继续更新', '取消并回滚'], description: '选择操作')]
+                    )
+
+                    if (userInput == '继续更新') {
+                        echo "▶️ 恢复滚动更新..."
+                        sh """
+                            kubectl rollout resume deployment ${RELEASE} -n ${NS}
+                            kubectl rollout status deployment ${RELEASE} -n ${NS} --timeout=10m
+                            echo "✅ 所有 Pod 已更新完成"
+                        """
+                    } else {
+                        echo "⏪ 取消更新并回滚..."
+                        sh """
+                            REV=\$(helm history ${RELEASE} -n ${NS} -o json | jq -r '.[-2].revision')
+                            echo "回滚到 Revision=\$REV"
+                            helm rollback ${RELEASE} \$REV -n ${NS}
+                            kubectl rollout resume deployment ${RELEASE} -n ${NS}
+                            kubectl rollout status deployment ${RELEASE} -n ${NS}
+                            echo "✅ 已回滚到上一个版本"
+                        """
+                    }
+                }
             }
         }
-
 
     }
 

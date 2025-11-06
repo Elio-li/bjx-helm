@@ -1,6 +1,6 @@
 namespace: ghana
 
-replicaCount: 1
+replicaCount: 3
 
 image:
   repository: harbor.bjxsre.com/bjx-ghana-test/urule
