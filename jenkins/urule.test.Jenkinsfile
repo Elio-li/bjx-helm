@@ -67,7 +67,7 @@ pipeline {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
                 checkout([$class: 'GitSCM',
-                    branches: [[name: "*/${params.BRANCH}"]],
+                    branches: [[name: "${params.BRANCH.startsWith('origin/') ? params.BRANCH : "*/${params.BRANCH}"}"]],
                     doGenerateSubmoduleConfigurations: false,
                     extensions: [],
                     userRemoteConfigs: [[
@@ -77,6 +77,7 @@ pipeline {
                 ])
             }
         }
+
 
 
         stage('Build Jar') {
