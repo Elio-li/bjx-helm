@@ -132,117 +132,128 @@ pipeline {
                     def CHART_DIR = env.CHAT_DIR
                     def VALUES_FILE = "${CHART_DIR}/urule-ghana-test.yaml"
                     def STRATEGY = params.CANARY_STRATEGY
+                    def IMAGE_TAG = env.BUILD_VERSION
 
-                    // 更新镜像 tag
+                    // 更新 values 和 Chart.yaml
                     sh """
-                        sed -i "s|^  tag:.*|  tag: ${env.BUILD_VERSION}|" ${VALUES_FILE}
-                        sed -i "s|^appVersion:.*|appVersion: \"${env.BUILD_VERSION}\"|" ${CHART_DIR}/Chart.yaml
+                        sed -i "s|^  tag:.*|  tag: ${IMAGE_TAG}|" ${VALUES_FILE}
+                        sed -i "s|^appVersion:.*|appVersion: \"${IMAGE_TAG}\"|" ${CHART_DIR}/Chart.yaml
                     """
 
-                    // 获取当前副本数
-                    def replicas = sh(
-                        script: "kubectl get deployment ${RELEASE} -n ${NS} -o jsonpath='{.spec.replicas}'",
-                        returnStdout: true
-                    ).trim().toInteger()
+                    def replicas = sh(script: "kubectl get deployment ${RELEASE} -n ${NS} -o jsonpath='{.spec.replicas}'", returnStdout: true).trim().toInteger()
+                    if (replicas <= 0) error "副本数为 0"
 
-                    if (replicas <= 0) error "副本数为 0，无法部署！"
-
-                    // 计算批次
                     def batchSizes = []
-                    if (STRATEGY == '1-pod') {
-                        batchSizes = [1]
-                    } else if (STRATEGY == '30%') {
+                    if (STRATEGY == '1-pod') batchSizes = [1]
+                    else if (STRATEGY == '30%') {
                         def first = Math.max(1, (replicas * 0.3).round())
                         batchSizes = [first, replicas - first]
-                    } else if (STRATEGY == '50%') {
+                    }
+                    else if (STRATEGY == '50%') {
                         def half = (replicas * 0.5).round()
                         batchSizes = [half, replicas - half]
-                    } else if (STRATEGY == '100%') {
-                        batchSizes = [replicas]
                     }
+                    else batchSizes = [replicas]
 
-                    echo "部署策略: ${STRATEGY} → 分批大小: ${batchSizes}"
+                    echo "分批策略: ${batchSizes}"
 
-                    // 分批部署
+                    // 首次 helm upgrade（触发变更）
+                    sh "helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS}"
+
+                    // 立即暂停滚动更新
+                    sh "kubectl rollout pause deployment/${RELEASE} -n ${NS} || true"
+
                     for (int i = 0; i < batchSizes.size(); i++) {
                         def batchSize = batchSizes[i]
                         def isLast = (i == batchSizes.size() - 1)
 
-                        echo "第 ${i+1} 批：更新 ${batchSize} 个 Pod"
+                        echo "第 ${i+1} 批：目标 ${batchSize} 个新 Pod"
 
-                        // 设置滚动策略
+                        // 设置 maxSurge
                         sh """
                             kubectl patch deployment ${RELEASE} -n ${NS} -p '{
                                 "spec": {"strategy": {"rollingUpdate": {"maxSurge": ${batchSize}, "maxUnavailable": 0}}}
                             }' || true
                         """
 
-                        // 触发升级
-                        sh """
-                            helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS} 
-                        """
+                        // 恢复滚动，让这一批启动
+                        sh "kubectl rollout resume deployment/${RELEASE} -n ${NS}"
 
-                        // 关键：5分钟超时检测 + 人工确认回滚
+                        // 等待本批就绪（使用 label + image 精确匹配）
                         def batchReady = false
                         try {
                             timeout(time: 5, unit: 'MINUTES') {
                                 waitUntil {
-                                    def readyCount = sh(
+                                    def readyPods = sh(
                                         script: """
-                                            kubectl get pods -n ${NS} -l app=${RELEASE} \
-                                            -o jsonpath='{range .items[?(@.spec.containers[0].image=~".*${env.BUILD_VERSION}.*")]}{.status.containerStatuses[0].ready}{"\\n"}{end}' | grep -c true || echo 0
+                                            kubectl get pods -n $$ {NS} -l app= $${RELEASE} \
+                                            --field-selector=status.phase=Running \
+                                            -o jsonpath='{range .items[*]}{.metadata.name}{"\\t"}{.spec.containers[0].image}{"\\n"}{end}' | \
+                                            grep '${IMAGE_TAG}' | cut -f1
                                         """,
                                         returnStdout: true
-                                    ).trim().toInteger()
-                                    def result = readyCount >= batchSize
-                                    if (result) {
-                                        echo "第 ${i+1} 批 ${batchSize} 个 Pod 已就绪"
+                                    ).trim().split('\n').findAll { it }
+
+                                    def readyCount = 0
+                                    for (pod in readyPods) {
+                                        def isReady = sh(
+                                            script: "kubectl get pod ${pod} -n ${NS} -o jsonpath='{.status.containerStatuses[0].ready}'",
+                                            returnStdout: true
+                                        ).trim()
+                                        if (isReady == 'true') readyCount++
                                     }
-                                    return result
+                                    echo "本批就绪: $$ {readyCount}/ $${batchSize}"
+                                    return readyCount >= batchSize
                                 }
                             }
                             batchReady = true
                         } catch (err) {
-                            echo "第 ${i+1} 批 Pod 5分钟内未全部就绪！"
+                            echo "第 ${i+1} 批 5分钟未就绪！"
                         }
 
-                        // 超时或未就绪 → 强制人工确认是否回滚
+                        // 打印新 Pod 名称（方便 logs）
+                        def newPods = sh(
+                            script: "kubectl get pods -n $$ {NS} -l app= $${RELEASE} -o jsonpath='{range .items[?(@.spec.containers[0].image=\\\"\${IMAGE_TAG}\\\")]}{.metadata.name}{\"\\n\"}{end}'",
+                            returnStdout: true
+                        ).trim()
+                        echo "新 Pod 列表：\n${newPods}\n查看日志：kubectl logs <pod> -n ${NS}"
+
+                        // 超时或未就绪 → 强制确认回滚
                         if (!batchReady) {
-                            def rollbackChoice = input(
-                                message: "第 ${i+1} 批 Pod 启动失败或超时，是否立即回滚？",
-                                parameters: [
-                                    choice(name: 'ROLLBACK_ACTION', choices: ['立即回滚', '继续等待（不推荐）'], description: '选择操作')
-                                ]
+                            def choice = input(
+                                message: "第 ${i+1} 批启动失败，是否回滚？",
+                                parameters: [choice(name: 'ACT', choices: ['立即回滚', '继续（风险自担）'])]
                             )
-
-                            if (rollbackChoice == '立即回滚') {
+                            if (choice == '立即回滚') {
                                 rollbackDeployment(RELEASE, NS)
-                                error("第 ${i+1} 批启动失败，用户选择回滚，部署终止")
-                            } else {
-                                echo "用户选择继续等待，但仍需手动确认后续"
-                                // 继续，但仍需人工确认下一批
+                                error("回滚完成，部署终止")
                             }
-                        } else {
-                            echo "第 ${i+1} 批 ${batchSize} 个 Pod 正常就绪"
                         }
 
-                        // 非最后一轮，正常人工确认（即使超时也走这里）
+                        // 暂停，等待人工确认下一批
+                        sh "kubectl rollout pause deployment/${RELEASE} -n ${NS}"
+
                         if (!isLast) {
                             def action = input(
-                                message: "第 ${i+1} 批处理完成，是否继续下一批？",
-                                parameters: [choice(name: 'ACTION', choices: ['继续下一批', '停止并回滚'], description: '选择')]
+                                message: "第 ${i+1} 批完成，是否继续下一批？",
+                                parameters: [choice(name: 'NEXT', choices: ['继续下一批', '停止并回滚'])]
                             )
                             if (action == '停止并回滚') {
                                 rollbackDeployment(RELEASE, NS)
-                                error("用户主动取消部署，已回滚")
+                                error("用户取消，已回滚")
                             }
                         }
                     }
 
+                    // 最后恢复并完成
+                    sh """
+                        kubectl rollout resume deployment/${RELEASE} -n ${NS}
+                        kubectl rollout status deployment/${RELEASE} -n ${NS} --timeout=10m
+                    """
                     echo "所有 Pod 更新完成！"
                 }
             }
-        }
+}
     }
 
     post {
