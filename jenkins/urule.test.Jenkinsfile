@@ -33,9 +33,14 @@ pipeline {
             steps {
                 script {
                     def versions = sh(
-                        script: "helm history ${params.deployment_name} -n ${env.NAMESPACE} -o json | jq -r '.[] | select(.status=="deployed") | .app_version'  | grep -v null",
+                        script: """
+                            helm history ${params.deployment_name} -n ${env.NAMESPACE} -o json \
+                            | jq -r '.[] | select(.status=="deployed") | .app_version' \
+                            | grep -v null
+                        """,
                         returnStdout: true
-                    ).trim().split("\n").findAll { it }.reverse()
+                    ).trim().split("\\n").findAll { it }.reverse()
+
 
                     if (versions.isEmpty()) {
                         error "没有可回滚的历史版本！"
