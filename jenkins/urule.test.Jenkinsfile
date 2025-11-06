@@ -186,7 +186,7 @@ pipeline {
                                 waitUntil {
                                     def readyPods = sh(
                                         script: """
-                                            kubectl get pods -n $$ {NS} -l app= $${RELEASE} \
+                                            kubectl get pods -n ${NS} -l app= $${RELEASE} \
                                             --field-selector=status.phase=Running \
                                             -o jsonpath='{range .items[*]}{.metadata.name}{"\\t"}{.spec.containers[0].image}{"\\n"}{end}' | \
                                             grep '${IMAGE_TAG}' | cut -f1
