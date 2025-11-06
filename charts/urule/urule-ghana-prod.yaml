@@ -17,10 +17,14 @@ ingress:
   annotations:
     alb.ingress.kubernetes.io/load-balancer-name: bjx-eks-hk-tools
     alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
-    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-east-1:398250236375:certificate/a02a1783-2918-4cdd-85c6-ec9ffd6a2ae4
-    alb.ingress.kubernetes.io/security-groups: sg-0f5bf935f9d3f339f
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
     alb.ingress.kubernetes.io/group.name: common
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /urule    
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/success-codes: 200-499
+    external-dns.alpha.kubernetes.io/hostname: k8s-urule-ghana.bjxsre.com
+    external-dns.alpha.kubernetes.io/ttl: "60"
 
 env:
   COUNTRY: ghana
@@ -32,7 +36,3 @@ env:
 imagePullSecrets:
   - name: harbor-secret
 
-harbor:
-  registry: harbor.bjxsre.com
-  username: admin
-  password: Harbor12345

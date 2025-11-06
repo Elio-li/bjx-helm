@@ -35,7 +35,3 @@ env:
 imagePullSecrets:
   - name: harbor-secret
 
-harbor:
-  registry: harbor.bjxsre.com
-  username: admin
-  password: Harbor12345
