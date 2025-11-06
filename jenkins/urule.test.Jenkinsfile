@@ -17,6 +17,7 @@ pipeline {
         IMAGE_FULL = "${REGISTRY}/${PROJECT}/${params.service}:${BUILD_VERSION}"
         CHAT_DIR = "./bjx-helm/charts/urule"
         jar_path = "urule-springboot/target/urule.jar"
+        NAMESPACE = "ghana"
     }
 
 
@@ -122,14 +123,14 @@ pipeline {
             steps {
                 sh """
                 rm -rf bjx-helm
-                git clone https://github.com/Elio-li/bjx-helm.git   
-                kubectl apply -f  ./bjx-helm/init/all-secret.yaml
+                git clone https://github.com/Elio-li/bjx-helm.git   -
+                kubectl apply -f  ./bjx-helm/init/all-secret.yaml -n namespace  ${env.NAMESPACE}
                 sed -i "s|^  tag:.*|  tag: ${env.BUILD_VERSION}|" ${env.CHAT_DIR}/urule-ghana-test.yaml
                 sed -i "s|^appVersion:.*|appVersion: \"${env.BUILD_VERSION}\"|" ${env.CHAT_DIR}/Chart.yaml
-                helm upgrade --install ${params.deployment_name}  ${env.CHAT_DIR} -f ${env.CHAT_DIR}/urule-ghana-test.yaml --namespace ghana
+                helm upgrade --install ${params.deployment_name}  ${env.CHAT_DIR} -f ${env.CHAT_DIR}/urule-ghana-test.yaml --namespace ${env.NAMESPACE}
                 
                 """
-                waitForPodsRunning('ghana', "app=${params.deployment_name}", 600, 10)
+                waitForPodsRunning("${env.NAMESPACE}", "app=${params.deployment_name}", 600, 10)
             }
         }
 
