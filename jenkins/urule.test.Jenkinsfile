@@ -179,7 +179,7 @@ pipeline {
 
                         // 触发升级
                         sh """
-                            helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS} --wait --timeout=5m
+                            helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS} 
                         """
 
                         // 关键：5分钟超时检测 + 人工确认回滚
