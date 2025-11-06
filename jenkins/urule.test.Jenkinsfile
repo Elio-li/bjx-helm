@@ -14,7 +14,7 @@ pipeline {
         string(name: 'service', defaultValue: 'urule', description: '服务名')
         string(name: 'deployment_name', defaultValue: 'urule-ghana', description: 'Deployment 名称')
         choice(name: 'DEPLOY_TYPE', choices: ['Deploy', 'Rollback'], description: '操作类型：Deploy=部署新版本，Rollback=回滚')
-        choice(name: 'CANARY_STRATEGY', choices: ['1-pod', '30%', '50%', '100%'], description: '金丝雀策略：先更新多少比例？')
+        choice(name: 'CANARY_STRATEGY', choices: ['1-pod', '30%', '50%', '100%'], description: '金丝雀策略')
     }
 
     environment {
@@ -121,7 +121,6 @@ pipeline {
                     passwordVariable: 'HARBOR_PASS'
                 )]) {
                     sh """
-                        branchNameClean = branchNameClean.replaceAll('/', '-')
                         echo "${HARBOR_PASS}" | docker login ${REGISTRY} -u "${HARBOR_USER}" --password-stdin
                         docker build -t ${IMAGE_FULL} .
                         docker push ${IMAGE_FULL}
