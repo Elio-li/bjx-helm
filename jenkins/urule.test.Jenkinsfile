@@ -142,16 +142,14 @@ pipeline {
                     def CHART_DIR = env.CHAT_DIR
                     def VALUES_FILE = "${CHART_DIR}/urule-ghana-test.yaml"
 
-                    // 暂停滚动更新
-                    sh """
-                        echo "⏸️ 暂停 Deployment 滚动更新：${RELEASE}"
-                        kubectl rollout pause deployment ${RELEASE} -n ${NS} || true
-                    """
+
 
                     // 部署新版本
                     sh """
                         echo "🚀 执行 Helm 升级..."
                         helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS}
+                        echo "⏸️ 暂停 Deployment 滚动更新：${RELEASE}"
+                        kubectl rollout pause deployment ${RELEASE} -n ${NS} || true
                         echo "✅ Deployment 已更新，但滚动更新暂停中"
                     """
 
