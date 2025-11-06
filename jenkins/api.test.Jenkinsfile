@@ -15,7 +15,7 @@ pipeline {
         PROJECT  = 'bjx-ghana-test'
         BUILD_VERSION = "${params.BRANCH}-${env.BUILD_NUMBER}-${new Date().format('yyyyMMddHHmmss')}"
         IMAGE_FULL = "${REGISTRY}/${PROJECT}/${params.SERVER_NAME}:${BUILD_VERSION}"
-        CHAT_DIR = "/data/apps/K8S/bjx/charts/api"
+        CHAT_DIR = "./bjx-helm/charts/api"
         jar_path = "www/${params.SERVER_NAME}/target/${params.SERVER_NAME}.jar"
     }
 
@@ -116,8 +116,9 @@ pipeline {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
                 sh """
-                sed -i "s|^  tag:.*|  tag: ${env.BUILD_VERSION}|" /data/apps/K8S/bjx/charts/api/api-ghana-test.yaml
-                sed -i "s|^appVersion:.*|appVersion: \"${env.BUILD_VERSION}\"|" /data/apps/K8S/bjx/charts/api/Chart.yaml
+                sed -i "s|^  tag:.*|  tag: ${env.BUILD_VERSION}|" ${env.CHAT_DIR}/api-ghana-test.yaml
+                sed -i "s|^appVersion:.*|appVersion: \"${env.BUILD_VERSION}\"|" ${env.CHAT_DIR}/Chart.yaml
+                git clone https://github.com/Elio-li/bjx-helm.git    
                 helm upgrade --install ${params.deployment_name}  ${env.CHAT_DIR} -f ${env.CHAT_DIR}/api-ghana-test.yaml --namespace ghana
                 
                 """
