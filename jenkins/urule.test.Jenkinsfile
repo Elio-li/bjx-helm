@@ -275,7 +275,9 @@ pipeline {
                         )
                         if (action == '回滚') {
                             rollbackDeployment(RELEASE, NS)
+                            sh "kubectl rollout resume deployment/${RELEASE} -n ${NS}"
                             error("已回滚（因为新 Pod 未就绪）")
+                            
                         } else {
                             echo "你选择了继续等待/人工处理，请手动检查问题并在准备好后手动 resume（或在 Jenkins 中继续）。"
                             // 保持 paused 状态，结束 pipeline（或继续由人工在集群上处理）
