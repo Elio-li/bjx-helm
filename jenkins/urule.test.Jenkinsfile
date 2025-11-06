@@ -123,8 +123,8 @@ pipeline {
                 sh """
                 rm -rf bjx-helm
                 git clone https://github.com/Elio-li/bjx-helm.git   
-                sed -i "s|^  tag:.*|  tag: ${env.BUILD_VERSION}|" ${env.CHAT_DIR}/urule/urule-ghana-test.yaml
-                sed -i "s|^appVersion:.*|appVersion: \"${env.BUILD_VERSION}\"|" ${env.CHAT_DIR}/urule/Chart.yaml
+                sed -i "s|^  tag:.*|  tag: ${env.BUILD_VERSION}|" ${env.CHAT_DIR}/urule-ghana-test.yaml
+                sed -i "s|^appVersion:.*|appVersion: \"${env.BUILD_VERSION}\"|" ${env.CHAT_DIR}/Chart.yaml
                 helm upgrade --install ${params.deployment_name}  ${env.CHAT_DIR} -f ${env.CHAT_DIR}/urule-ghana-test.yaml --namespace ghana
                 
                 """
