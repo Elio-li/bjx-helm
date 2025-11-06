@@ -1,0 +1,7 @@
+apiVersion: v2
+name: urule
+description: Helm chart for Urule Ghana service
+type: application
+version: 0.2.0
+appVersion: dev_gh-38-20251103110718
+

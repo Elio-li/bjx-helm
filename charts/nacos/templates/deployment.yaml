@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nacos.fullname" . }}
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "nacos.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "nacos.fullname" . }}
+    spec:
+      containers:
+        - name: {{ include "nacos.fullname" . }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.service.port }}
+          env:
+            - name: SPRING_DATASOURCE_PLATFORM
+              value: "mysql"
+            - name: MYSQL_SERVICE_HOST
+              value: "{{ .Values.database.host }}"
+            - name: MYSQL_SERVICE_PORT
+              value: "{{ .Values.database.port }}"
+            - name: MYSQL_SERVICE_DB_NAME
+              value: "{{ .Values.database.database }}"
+            - name: MYSQL_SERVICE_USER
+              value: "{{ .Values.database.username }}"
+            - name: MYSQL_SERVICE_PASSWORD
+              value: "{{ .Values.database.password }}"
+            - name: MYSQL_SERVICE_DB_PARAM
+              value: "characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&serverTimezone=UTC"
+          livenessProbe:
+            httpGet:
+              path: /nacos/actuator/health
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /nacos/actuator/health
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /nacos/actuator/health
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 30
+      imagePullSecrets:
+        {{- range .Values.imagePullSecrets }}
+        - name: {{ .name }}
+        {{- end }}

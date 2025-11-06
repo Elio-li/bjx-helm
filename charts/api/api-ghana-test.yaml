@@ -1,0 +1,41 @@
+namespace: ghana
+
+replicaCount: 1
+
+image:
+  repository: harbor.bjxsre.com/bjx-ghana-test/loan-api
+  tag: dev_gh-38-20251103110718
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 2014
+
+ingress:
+  enabled: true
+  hostname: k8s-api-ghana.bjxsre.com
+  annotations:
+    alb.ingress.kubernetes.io/load-balancer-name: bjx-eks-hk-tools
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/group.name: common
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /actuator/health
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/success-codes: 200-499
+    external-dns.alpha.kubernetes.io/hostname: k8s-api-ghana.bjxsre.com
+    external-dns.alpha.kubernetes.io/ttl: "60"
+env:
+  COUNTRY: ghana
+  TIMEZONE: Africa/Accra
+  PROFILE: dev
+  JAVA_OPTS: "-Duser.timezone=Africa/Accra"
+  RUN_ARGS: "--spring.config.location=classpath:/ghana/ --spring.profiles.active=dev"
+
+imagePullSecrets:
+  - name: harbor-secret
+
+harbor:
+  registry: harbor.bjxsre.com
+  username: admin
+  password: Harbor12345

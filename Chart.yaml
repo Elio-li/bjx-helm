@@ -1,0 +1,15 @@
+apiVersion: v2
+name: bjx
+description: Parent chart for all urule sub-charts
+type: application
+version: 1.0.0
+dependencies:
+  - name: urule
+    version: 0.1.0
+    repository: "file://charts/urule"
+  - name: nacos
+    version: 0.1.0
+    repository: "file://charts/nacos"
+  - name: api
+    version: 0.1.0
+    repository: "file://charts/api"

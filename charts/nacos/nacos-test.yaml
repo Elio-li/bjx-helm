@@ -1,0 +1,43 @@
+namespace: common-tools
+
+replicaCount: 1
+
+image:
+  repository: harbor.bjxsre.com/bjx-common-test/nacos-test
+  tag: v2.0.3
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8848
+
+ingress:
+  enabled: true
+  hostname: k8s-nacos-test.bjxsre.com
+  annotations:
+    alb.ingress.kubernetes.io/load-balancer-name: bjx-eks-hk-tools
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/group.name: common
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /nacos
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/success-codes: 200-499
+    external-dns.alpha.kubernetes.io/hostname: k8s-nacos-test.bjxsre.com
+    external-dns.alpha.kubernetes.io/ttl: "60"
+
+database:
+  host: bjx-hk-test.cluster-cbuwkmuwoycy.ap-east-1.rds.amazonaws.com
+  port: "3306"
+  database: nacos_config
+  username: nacos
+  password: 8p3mqckjsi1n
+
+imagePullSecrets:
+  - name: harbor-secret
+
+harbor:
+  registry: harbor.bjxsre.com
+  username: admin
+  password: Harbor12345
+
