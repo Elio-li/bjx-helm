@@ -1,4 +1,4 @@
-    {{- define "api.fullname" -}}
-    {{ .Release.Name }}
-    {{- end }}
+{{- define "api.fullname" -}}
+{{ .Release.Name }}
+{{- end }}
 
