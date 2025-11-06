@@ -8,7 +8,7 @@ strategy:
     maxSurge: 1
 
 image:
-  repository: harbor.bjxsre.com/bjx-ghana-test/urule
+  repository: harbor.bjxsre.com/bjx-ghana-test/urule-ghana
   tag: dev_gh-38-20251103110718
   pullPolicy: IfNotPresent
 

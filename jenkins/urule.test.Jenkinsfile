@@ -241,7 +241,7 @@ pipeline {
                         }
                     }
 
-                    echo "检测到新 Pod: ${newPodName}，立即暂停 Deployment"
+                    echo "检测到新Pod: ${newPodName}，立即暂停 Deployment"
                     sh "kubectl rollout pause deployment/${RELEASE} -n ${NS}"
 
                     // 等待 Pod Ready
@@ -266,13 +266,15 @@ pipeline {
                     if (!podReady) {
                         def action = input(
                             message: "新 Pod 未 Ready，选择操作：",
-                            parameters: [choice(name: 'ACTION', choices: ['回滚', '继续等待/人工处理'], description: '选择')]
+                            parameters: [choice(name: 'ACTION', choices: ['回滚', '人工处理'], description: '选择')]
                         )
                         if (action == '回滚') {
                             rollbackDeployment(RELEASE, NS)
                             error("已回滚")
                         } else {
-                            error("Deployment 保持 paused 状态，等待人工处理")
+                            sh "kubectl rollout resume deployment/${RELEASE} -n ${NS}"
+                            error("Deployment人工处理")
+                            
                         }
                     }
 
@@ -283,6 +285,7 @@ pipeline {
 
                     if (userChoice == '回滚') {
                         rollbackDeployment(RELEASE, NS)
+                        
                         error("已回滚到上一版本")
                     }
 
@@ -302,6 +305,8 @@ pipeline {
     post {
         always {
             echo "构建完成：${env.IMAGE_FULL}"
+            
+
         }
         success {
             echo "部署成功！"
@@ -324,6 +329,7 @@ def rollbackDeployment(String release, String ns) {
         sh """
             helm rollback ${release} ${prevRev} -n ${ns}
             kubectl rollout status deployment/${release} -n ${ns} --timeout=5m
+            kubectl rollout resume deployment/${RELEASE} -n ${NS} 
         """
         echo "已回滚到 revision ${prevRev}"
     } else {
