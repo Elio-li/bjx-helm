@@ -2,7 +2,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "nacos.fullname" . }}
+  name: {{ include "api.fullname" . }}
   namespace: {{ .Values.namespace }}
   annotations:
     {{- range $key, $value := .Values.ingress.annotations }}
@@ -18,7 +18,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ include "nacos.fullname" . }}
+                name: {{ include "api.fullname" . }}
                 port:
                   number: {{ .Values.service.port }}
 {{- end }}
