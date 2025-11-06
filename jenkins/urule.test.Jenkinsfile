@@ -15,7 +15,7 @@ pipeline {
         PROJECT  = 'bjx-ghana-test'
         BUILD_VERSION = "${params.BRANCH}-${env.BUILD_NUMBER}-${new Date().format('yyyyMMddHHmmss')}"
         IMAGE_FULL = "${REGISTRY}/${PROJECT}/${params.service}:${BUILD_VERSION}"
-        CHAT_DIR = "/data/apps/K8S/bjx/charts/urule"
+        CHAT_DIR = "./bjx-helm/charts/urule"
         jar_path = "urule-springboot/target/urule.jar"
     }
 
@@ -66,6 +66,7 @@ pipeline {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
                 sh """
+                    g
                     sed -i 's|urule.mysql.url=jdbc:mysql://127.0.0.1:3306/ghana_loan?useSSL=false|urule.mysql.url=jdbc:mysql://bjx-hk-test.cluster-cbuwkmuwoycy.ap-east-1.rds.amazonaws.com/ghana_loan?useSSL=false|' urule-springboot/src/main/resources/ghana/application-dev.properties
                     sed -i 's|urule.mysql.username=root|urule.mysql.username=admin|' urule-springboot/src/main/resources/ghana/application-dev.properties
                     sed -i 's|urule.mysql.password=9skLyjBrvnqmCltkeqrazfqfoxc20:|urule.mysql.password=D4mFXq5fscAFh4tf49v6|' urule-springboot/src/main/resources/ghana/application-dev.properties
@@ -119,8 +120,10 @@ pipeline {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
                 sh """
-                sed -i "s|^  tag:.*|  tag: ${env.BUILD_VERSION}|" /data/apps/K8S/bjx/charts/urule/urule-ghana-test.yaml
-                sed -i "s|^appVersion:.*|appVersion: \"${env.BUILD_VERSION}\"|" /data/apps/K8S/bjx/charts/urule/Chart.yaml
+                rm -rf bjx-helm
+                git clone https://github.com/Elio-li/bjx-helm.git   
+                sed -i "s|^  tag:.*|  tag: ${env.BUILD_VERSION}|" ${env.CHAT_DIR}/urule/urule-ghana-test.yaml
+                sed -i "s|^appVersion:.*|appVersion: \"${env.BUILD_VERSION}\"|" ${env.CHAT_DIR}/urule/Chart.yaml
                 helm upgrade --install ${params.deployment_name}  ${env.CHAT_DIR} -f ${env.CHAT_DIR}/urule-ghana-test.yaml --namespace ghana
                 
                 """
