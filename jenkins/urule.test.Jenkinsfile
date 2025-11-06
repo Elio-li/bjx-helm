@@ -89,7 +89,7 @@ pipeline {
                     COPY ${env.JAR_PATH} /app/urule.jar
                     WORKDIR /app
                     EXPOSE 8080
-                    ENTRYPOINT ["java", "-jar", "/app/urule.jar"]
+                    ENTRYPOINT ["/app/urule.jar"]
                     """.stripIndent()
                     writeFile file: 'Dockerfile', text: dockerfile
                     echo "Dockerfile 已生成"
@@ -152,7 +152,7 @@ pipeline {
                     if (STRATEGY == '1-pod') {
                         batchSizes = [1]
                     } else if (STRATEGY == '30%') {
-                        def first = (replicas * 0.3).round()
+                        def first = Math.max(1, (replicas * 0.3).round())
                         batchSizes = [first, replicas - first]
                     } else if (STRATEGY == '50%') {
                         def half = (replicas * 0.5).round()
@@ -182,30 +182,59 @@ pipeline {
                             helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS} --wait --timeout=5m
                         """
 
-                        // 等待新 Pod 就绪
-                        timeout(5) {
-                            waitUntil {
-                                def readyCount = sh(
-                                    script: """
-                                        kubectl get pods -n ${NS} -l app=${RELEASE} \
-                                        -o jsonpath='{range .items[?(@.spec.containers[0].image=~".*${env.BUILD_VERSION}.*")]}{.status.containerStatuses[0].ready}{"\\n"}{end}' | grep -c true || echo 0
-                                    """,
-                                    returnStdout: true
-                                ).trim().toInteger()
-                                return readyCount >= batchSize
+                        // 关键：5分钟超时检测 + 人工确认回滚
+                        def batchReady = false
+                        try {
+                            timeout(time: 5, unit: 'MINUTES') {
+                                waitUntil {
+                                    def readyCount = sh(
+                                        script: """
+                                            kubectl get pods -n ${NS} -l app=${RELEASE} \
+                                            -o jsonpath='{range .items[?(@.spec.containers[0].image=~".*${env.BUILD_VERSION}.*")]}{.status.containerStatuses[0].ready}{"\\n"}{end}' | grep -c true || echo 0
+                                        """,
+                                        returnStdout: true
+                                    ).trim().toInteger()
+                                    def result = readyCount >= batchSize
+                                    if (result) {
+                                        echo "第 ${i+1} 批 ${batchSize} 个 Pod 已就绪"
+                                    }
+                                    return result
+                                }
                             }
+                            batchReady = true
+                        } catch (err) {
+                            echo "第 ${i+1} 批 Pod 5分钟内未全部就绪！"
                         }
-                        echo "第 ${i+1} 批 ${batchSize} 个 Pod 已就绪"
 
-                        // 非最后一轮，人工确认
+                        // 超时或未就绪 → 强制人工确认是否回滚
+                        if (!batchReady) {
+                            def rollbackChoice = input(
+                                message: "第 ${i+1} 批 Pod 启动失败或超时，是否立即回滚？",
+                                parameters: [
+                                    choice(name: 'ROLLBACK_ACTION', choices: ['立即回滚', '继续等待（不推荐）'], description: '选择操作')
+                                ]
+                            )
+
+                            if (rollbackChoice == '立即回滚') {
+                                rollbackDeployment(RELEASE, NS)
+                                error("第 ${i+1} 批启动失败，用户选择回滚，部署终止")
+                            } else {
+                                echo "用户选择继续等待，但仍需手动确认后续"
+                                // 继续，但仍需人工确认下一批
+                            }
+                        } else {
+                            echo "第 ${i+1} 批 ${batchSize} 个 Pod 正常就绪"
+                        }
+
+                        // 非最后一轮，正常人工确认（即使超时也走这里）
                         if (!isLast) {
                             def action = input(
-                                message: "第 ${i+1} 批已完成，是否继续下一批？",
+                                message: "第 ${i+1} 批处理完成，是否继续下一批？",
                                 parameters: [choice(name: 'ACTION', choices: ['继续下一批', '停止并回滚'], description: '选择')]
                             )
                             if (action == '停止并回滚') {
                                 rollbackDeployment(RELEASE, NS)
-                                error("部署已取消，已回滚")
+                                error("用户主动取消部署，已回滚")
                             }
                         }
                     }
