@@ -212,12 +212,13 @@ pipeline {
                         try {
                             timeout(time: 5, unit: 'MINUTES') {
                                 waitUntil {
-                                    def status = sh(
-                                        script: "kubectl get pod ${newPodName} -n ${NS} -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending",
+                                    def ready = sh(
+                                        script: "kubectl get pod ${newPodName} -n ${NS} -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo false",
                                         returnStdout: true
                                     ).trim()
-                                    return (status == 'Running')
+                                    return (ready == 'true')
                                 }
+
                             }
                             podReady = true
                         } catch(e) {
