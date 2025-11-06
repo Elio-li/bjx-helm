@@ -21,8 +21,9 @@ pipeline {
         REGISTRY = 'harbor.bjxsre.com'
         PROJECT  = 'bjx-ghana-test'
         GIT_REPO = 'git@github.com:bjx-code-backend/tanzania_loan.git'
-        BUILD_VERSION = "${params.BRANCH}-${env.BUILD_NUMBER}}"
-        IMAGE_FULL = "${REGISTRY}/${PROJECT}/${params.service}:${BUILD_VERSION}"
+        BUILD_VERSION = "${params.BRANCH}-${env.BUILD_NUMBER}"
+        IMAGE_FULL = "${REGISTRY}/${PROJECT}/${params.service}:${params.BRANCH.replaceFirst(/^origin\\//,'')}-${env.BUILD_VERSION}"
+
         CHAT_DIR = "./bjx-helm/charts/urule"
         JAR_PATH = "urule-springboot/target/urule.jar"
         NAMESPACE = "ghana"
@@ -120,6 +121,7 @@ pipeline {
                     passwordVariable: 'HARBOR_PASS'
                 )]) {
                     sh """
+                        branchNameClean = branchNameClean.replaceAll('/', '-')
                         echo "${HARBOR_PASS}" | docker login ${REGISTRY} -u "${HARBOR_USER}" --password-stdin
                         docker build -t ${IMAGE_FULL} .
                         docker push ${IMAGE_FULL}
