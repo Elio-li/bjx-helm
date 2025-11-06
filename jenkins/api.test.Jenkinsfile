@@ -116,9 +116,10 @@ pipeline {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
                 sh """
+                git clone https://github.com/Elio-li/bjx-helm.git    
                 sed -i "s|^  tag:.*|  tag: ${env.BUILD_VERSION}|" ${env.CHAT_DIR}/api-ghana-test.yaml
                 sed -i "s|^appVersion:.*|appVersion: \"${env.BUILD_VERSION}\"|" ${env.CHAT_DIR}/Chart.yaml
-                git clone https://github.com/Elio-li/bjx-helm.git    
+                
                 helm upgrade --install ${params.deployment_name}  ${env.CHAT_DIR} -f ${env.CHAT_DIR}/api-ghana-test.yaml --namespace ghana
                 
                 """
