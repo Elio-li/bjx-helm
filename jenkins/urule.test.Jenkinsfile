@@ -181,7 +181,7 @@ pipeline {
                         def count = sh(
                             script: """
                                 kubectl get pods -n ${NS} -l app=${RELEASE} -o jsonpath='{range .items[*]}{.metadata.name}::{.status.containerStatuses[0].image}{"\\n"}{end}' 2>/dev/null \
-                                | awk -F '::' '{print \$2}' | grep -c '${BUILD_TAG}' || echo 0
+                                | awk -F '::' '{print \$2}' | grep -c '${BUILD_TAG}' |tall -n 1  || echo 0
                             """,
                             returnStdout: true
                         ).trim().toInteger()
