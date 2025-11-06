@@ -66,11 +66,18 @@ pipeline {
         stage('Checkout') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
-                git branch: "${params.BRANCH}",
-                    credentialsId: 'GIT_CREDENTIALS',
-                    url: "${env.GIT_REPO}"
+                checkout([$class: 'GitSCM',
+                    branches: [[name: "*/${params.BRANCH}"]],
+                    doGenerateSubmoduleConfigurations: false,
+                    extensions: [],
+                    userRemoteConfigs: [[
+                        url: "${env.GIT_REPO}",
+                        credentialsId: 'GIT_CREDENTIALS'
+                    ]]
+                ])
             }
         }
+
 
         stage('Build Jar') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
