@@ -61,7 +61,6 @@ pipeline {
             }
         }
 
-        // ==================== 部署流程 ====================
         stage('Checkout') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
@@ -76,8 +75,6 @@ pipeline {
                 ])
             }
         }
-
-
 
         stage('Build Jar') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
@@ -135,18 +132,17 @@ pipeline {
             }
         }
 
-        // ==================== 金丝雀部署 ====================
         stage('Helm Canary Deploy') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
                 script {
-                    try {
-                        def RELEASE = params.deployment_name
-                        def NS = env.NAMESPACE
-                        def CHART_DIR = env.CHAT_DIR
-                        def VALUES_FILE = "${CHART_DIR}/urule-ghana-test.yaml"
-                        def BUILD_TAG = env.BUILD_VERSION
+                    def RELEASE = params.deployment_name
+                    def NS = env.NAMESPACE
+                    def CHART_DIR = env.CHAT_DIR
+                    def VALUES_FILE = "${CHART_DIR}/urule-ghana-test.yaml"
+                    def BUILD_TAG = env.BUILD_VERSION
 
+                    try {
                         // 更新 values & chart appVersion
                         sh """
                             sed -i "s|^  tag:.*|  tag: ${BUILD_TAG}|" ${VALUES_FILE}
@@ -157,33 +153,22 @@ pipeline {
                         def exists = sh(script: "kubectl get deploy ${RELEASE} -n ${NS} >/dev/null 2>&1 && echo true || echo false", returnStdout: true).trim()
                         if (exists != 'true') {
                             echo "Deployment ${RELEASE} 不存在，执行首次全量部署"
-                            sh """
-                                helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} \
-                                    --namespace ${NS} --wait --timeout=10m
-                            """
+                            sh "helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS} --wait --timeout=10m"
                             echo "首次部署完成"
                             return
                         }
 
                         // 获取副本数
-                        def replicasRaw = sh(script: "kubectl get deploy ${RELEASE} -n ${NS} -o jsonpath='{.spec.replicas}' || echo 0", returnStdout: true).trim()
-                        def replicas = 0
-                        try { replicas = replicasRaw.toInteger() } catch(e) { replicas = 0 }
+                        def replicas = sh(script: "kubectl get deploy ${RELEASE} -n ${NS} -o jsonpath='{.spec.replicas}' || echo 0", returnStdout: true).trim().toInteger()
                         if (replicas <= 0) {
                             echo "Deployment 副本数为 0 — 执行全量部署"
-                            sh """
-                                helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} \
-                                    --namespace ${NS} --wait --timeout=10m
-                            """
+                            sh "helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS} --wait --timeout=10m"
                             echo "全量部署完成"
                             return
                         }
 
                         echo "Deployment 存在，副本数=${replicas}. 开始 Helm 升级（不等待全部 ready）以触发滚动更新"
-                        sh """
-                            helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} \
-                                --namespace ${NS} --timeout=5m
-                        """
+                        sh "helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS} --timeout=5m"
 
                         // 等待第一个新 Pod 并暂停 Deployment
                         echo "等待第一个使用镜像 tag='${BUILD_TAG}' 的 Pod 出现..."
@@ -195,7 +180,6 @@ pipeline {
                                 script: "kubectl get pods -n ${NS} -l app=${RELEASE} -o custom-columns=NAME:.metadata.name,IMAGE:.spec.containers[*].image --no-headers",
                                 returnStdout: true
                             ).trim()
-
                             podList.split("\n").each { line ->
                                 def (name, image) = line.tokenize(' ')
                                 if (image.contains("${BUILD_TAG}")) {
@@ -271,31 +255,22 @@ pipeline {
                         echo "🎉 部署完成：所有 Pod 已更新到 ${BUILD_TAG}"
 
                     } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
-                        // 用户取消触发回滚
                         echo "⚠️ 部署被用户取消，开始回滚..."
-                        rollbackDeployment(env.RELEASE ?: params.deployment_name, env.NAMESPACE ?: env.NAMESPACE)
+                        rollbackDeployment(RELEASE, NS)
                         error("已回滚到上一版本（用户取消）")
                     } catch (e) {
-                        // 其他异常回滚
                         echo "⚠️ 部署异常: ${e}"
-                        rollbackDeployment(env.RELEASE ?: params.deployment_name, env.NAMESPACE ?: env.NAMESPACE)
+                        rollbackDeployment(RELEASE, NS)
                         error("已回滚到上一版本（部署失败）")
                     }
                 }
             }
-}
-
-
-
-}
-
-    
+        }
+    }
 
     post {
         always {
             echo "构建完成：${env.IMAGE_FULL}"
-            
-
         }
         success {
             echo "部署成功！"
@@ -318,7 +293,7 @@ def rollbackDeployment(String release, String ns) {
         sh """
             helm rollback ${release} ${prevRev} -n ${ns}
             kubectl rollout status deployment/${release} -n ${ns} --timeout=5m
-            kubectl rollout resume deployment/${RELEASE} -n ${NS} 
+            kubectl rollout resume deployment/${release} -n ${ns}
         """
         echo "已回滚到 revision ${prevRev}"
     } else {
