@@ -67,7 +67,7 @@ pipeline {
             steps {
                 sh """
                     sed -i 's#127.0.0.1:2012#172.20.50.13:2012#;s#47.236.186.192:8848#172.20.75.117:8848#' www/loan-api/src/main/resources/ghana/bootstrap-dev.properties
-                    mvn clean install -pl www/${params.SERVER_NAME} -am -Dmaven.test.skip=true
+                    #mvn clean install -pl www/${params.SERVER_NAME} -am -Dmaven.test.skip=true
                 """
             }
         }
@@ -115,7 +115,7 @@ pipeline {
         stage('Helm Deploy') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
-                sh """
+                sh """1
                 git clone https://github.com/Elio-li/bjx-helm.git    
                 sed -i "s|^  tag:.*|  tag: ${env.BUILD_VERSION}|" ${env.CHAT_DIR}/api-ghana-test.yaml
                 sed -i "s|^appVersion:.*|appVersion: \"${env.BUILD_VERSION}\"|" ${env.CHAT_DIR}/Chart.yaml
