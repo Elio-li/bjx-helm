@@ -11,10 +11,8 @@ pipeline {
             useRepository: 'git@github.com:bjx-code-backend/tanzania_loan.git'
         )
         string(name: 'SERVER_NAME', defaultValue: 'urule-springboot', description: '模块名称')
-        string(name: 'service', defaultValue: 'urule', description: '服务名')
         string(name: 'deployment_name', defaultValue: 'urule-ghana', description: 'Deployment 名称')
         choice(name: 'DEPLOY_TYPE', choices: ['Deploy', 'Rollback'], description: '操作类型：Deploy=部署新版本，Rollback=回滚')
-        choice(name: 'CANARY_STRATEGY', choices: ['1-pod', '30%', '50%', '100%'], description: '金丝雀策略')
     }
 
     environment {
@@ -22,7 +20,7 @@ pipeline {
         PROJECT  = 'bjx-ghana-test'
         GIT_REPO = 'git@github.com:bjx-code-backend/tanzania_loan.git'
         BUILD_VERSION = "${params.BRANCH.replaceFirst(/^origin\\//,'')}-${env.BUILD_NUMBER}"
-        IMAGE_FULL = "${REGISTRY}/${PROJECT}/${params.service}:${BUILD_VERSION}"
+        IMAGE_FULL = "${REGISTRY}/${PROJECT}/${params.deployment_name}:${BUILD_VERSION}"
  
         CHAT_DIR = "./bjx-helm/charts/urule"
         JAR_PATH = "urule-springboot/target/urule.jar"
