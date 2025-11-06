@@ -270,7 +270,7 @@ pipeline {
                         sh "kubectl rollout status deployment/${RELEASE} -n ${NS} --timeout=10m"
                         echo "🎉 部署完成：所有 Pod 已更新到 ${BUILD_TAG}"
 
-                    } catch (FlowInterruptedException e) {
+                    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
                         // 用户取消触发回滚
                         echo "⚠️ 部署被用户取消，开始回滚..."
                         rollbackDeployment(env.RELEASE ?: params.deployment_name, env.NAMESPACE ?: env.NAMESPACE)
@@ -284,6 +284,7 @@ pipeline {
                 }
             }
 }
+
 
 
 }
