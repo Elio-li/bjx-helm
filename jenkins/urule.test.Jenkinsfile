@@ -99,7 +99,7 @@ pipeline {
                     COPY ${env.JAR_PATH} /app/urule.jar
                     WORKDIR /app
                     EXPOSE 8080
-                    ENTRYPOINT [ "/app/urule.jar"]
+                    ENTRYPOINT [ "/app/urule1.jar"]
                     """.stripIndent()
                     writeFile file: 'Dockerfile', text: dockerfile
                     echo "Dockerfile 已生成"
