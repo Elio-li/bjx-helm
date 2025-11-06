@@ -165,7 +165,7 @@ pipeline {
                         return
                     }
 
-                    echo "Deployment 存在，副本数=${replicas}. 开始 Helm 升级（不等待全部 ready）以触发滚动更新"
+                    echo "Deployment 存在，副本数=${replicas}. 开始 Helm 升级"
                     // 1) 触发 helm upgrade（不加 --wait）
                     sh """
                         helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} \
@@ -306,10 +306,8 @@ pipeline {
                     echo "🎉 部署完成：所有 Pod 已更新到 ${BUILD_TAG}"
                 }
             }
-}
-
-
-}
+        }
+    }
 
     
 
