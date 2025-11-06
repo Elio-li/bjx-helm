@@ -94,15 +94,16 @@ pipeline {
                     echo "🔄 开始回滚到版本: ${selectedVersion}"
                     
                     sh """
-                        REVISION=\$(echo '${versionsJson}' | jq -r '.[] | select(.app_version=="${selectedVersion}") | .revision')
-                        if [ -z "\$REVISION" ]; then
-                            echo "❌ 找不到版本 ${selectedVersion} 对应的 revision"
-                            exit 1
-                        fi
-                        echo "📌 回滚到 revision: \$REVISION"
-                        helm rollback ${params.deployment_name} \$REVISION -n ${env.NAMESPACE}
-                        kubectl rollout status deployment/${params.deployment_name} -n ${env.NAMESPACE} --timeout=5m
+                    REVISION=\$(echo '${versionsJson}' | jq -r '.[] | select(.app_version=="'"${selectedVersion}"'") | .revision')
+                    if [ -z "\$REVISION" ]; then
+                        echo "❌ 找不到版本 ${selectedVersion} 对应的 revision"
+                        exit 1
+                    fi
+                    echo "📌 回滚到 revision: \$REVISION"
+                    helm rollback ${params.deployment_name} \$REVISION -n ${env.NAMESPACE}
+                    kubectl rollout status deployment/${params.deployment_name} -n ${env.NAMESPACE} --timeout=5m
                     """
+
                     
                     echo "✅ 回滚成功！"
                 }
