@@ -121,7 +121,6 @@ pipeline {
                     passwordVariable: 'HARBOR_PASS'
                 )]) {
                     sh """
-                        branchNameClean = branchNameClean.replaceAll('/', '-')
                         echo "${HARBOR_PASS}" | docker login ${REGISTRY} -u "${HARBOR_USER}" --password-stdin
                         docker build -t ${IMAGE_FULL} .
                         docker push ${IMAGE_FULL}
