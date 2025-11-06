@@ -2,8 +2,14 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'GIT_REPO', defaultValue: 'git@github.com:bjx-code-backend/tanzania_loan.git', description: 'Git 仓库地址')
-        string(name: 'BRANCH', defaultValue: 'dev_gh', description: 'Git 分支')
+        gitParameter(
+            name: 'BRANCH',
+            type: 'PT_BRANCH', 
+            defaultValue: 'dev_gh', 
+            description: '选择要部署的 Git 分支',
+            branch: '', 
+            useRepository: 'git@github.com:bjx-code-backend/tanzania_loan.git'
+        )
         string(name: 'SERVER_NAME', defaultValue: 'urule-springboot', description: '模块名称')
         string(name: 'service', defaultValue: 'urule', description: '服务名')
         string(name: 'deployment_name', defaultValue: 'urule-ghana', description: 'Deployment 名称')
@@ -14,7 +20,8 @@ pipeline {
     environment {
         REGISTRY = 'harbor.bjxsre.com'
         PROJECT  = 'bjx-ghana-test'
-        BUILD_VERSION = "${params.BRANCH}-${env.BUILD_NUMBER}-${new Date().format('yyyyMMddHHmmss')}"
+        GIT_REPO = 'git@github.com:bjx-code-backend/tanzania_loan.git'
+        BUILD_VERSION = "${params.BRANCH}-${env.BUILD_NUMBER}}"
         IMAGE_FULL = "${REGISTRY}/${PROJECT}/${params.service}:${BUILD_VERSION}"
         CHAT_DIR = "./bjx-helm/charts/urule"
         JAR_PATH = "urule-springboot/target/urule.jar"
@@ -22,7 +29,6 @@ pipeline {
     }
 
     stages {
-        // ==================== 回滚阶段 ====================
         stage('Rollback Check') {
             when { expression { params.DEPLOY_TYPE == 'Rollback' } }
             steps {
@@ -62,7 +68,7 @@ pipeline {
             steps {
                 git branch: "${params.BRANCH}",
                     credentialsId: 'GIT_CREDENTIALS',
-                    url: "${params.GIT_REPO}"
+                    url: "${env.GIT_REPO}"
             }
         }
 
