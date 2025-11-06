@@ -133,16 +133,16 @@ pipeline {
                     def VALUES_FILE = "${CHART_DIR}/urule-ghana-test.yaml"
                     def BUILD_TAG = env.BUILD_VERSION
 
-                    // update values & chart appVersion
+                    // 更新 values & chart appVersion
                     sh """
                         sed -i "s|^  tag:.*|  tag: ${BUILD_TAG}|" ${VALUES_FILE}
                         sed -i "s|^appVersion:.*|appVersion: \\"${BUILD_TAG}\\"|" ${CHART_DIR}/Chart.yaml
                     """
 
-                    // check deployment existence
+                    // 检查 Deployment 是否存在
                     def exists = sh(script: "kubectl get deploy ${RELEASE} -n ${NS} >/dev/null 2>&1 && echo true || echo false", returnStdout: true).trim()
                     if (exists != 'true') {
-                        echo "Deployment ${RELEASE} not found in namespace ${NS} — 执行首次全量部署"
+                        echo "Deployment ${RELEASE} 不存在，执行首次全量部署"
                         sh """
                             helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} \
                                 --namespace ${NS} --wait --timeout=10m
@@ -151,7 +151,7 @@ pipeline {
                         return
                     }
 
-                    // get replica count
+                    // 获取副本数
                     def replicasRaw = sh(script: "kubectl get deploy ${RELEASE} -n ${NS} -o jsonpath='{.spec.replicas}' || echo 0", returnStdout: true).trim()
                     def replicas = 0
                     try { replicas = replicasRaw.toInteger() } catch(e) { replicas = 0 }
@@ -166,143 +166,116 @@ pipeline {
                     }
 
                     echo "Deployment 存在，副本数=${replicas}. 开始 Helm 升级（不等待全部 ready）以触发滚动更新"
-                    // 1) 触发 helm upgrade（不加 --wait）
                     sh """
                         helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} \
                             --namespace ${NS} --timeout=5m
                     """
 
-                    // 2) 轮询等待出现第一个使用新镜像 tag 的 Pod
+                    // 轮询获取第一个新 Pod（使用 custom-columns 获取 NAME:IMAGE）
                     echo "等待第一个使用镜像 tag='${BUILD_TAG}' 的 Pod 出现..."
-                    def newPodFound = false
+                    def newPodName = ''
                     def pollStart = System.currentTimeMillis()
-                    def pollTimeoutMs = 3 * 60 * 1000  // 3 分钟内必须出现新 Pod，否则超时并提示人工决策（可以调整）
+                    def pollTimeoutMs = 3 * 60 * 1000
                     while ((System.currentTimeMillis() - pollStart) < pollTimeoutMs) {
-                        def count = sh(
-                            script: """
-                                kubectl get pods -n ${NS} -l app=${RELEASE} -o jsonpath='{range .items[*]}{.metadata.name}::{.status.containerStatuses[0].image}{"\\n"}{end}' 2>/dev/null \
-                                | awk -F '::' '{print \$2}' | grep -c '${BUILD_TAG}' || echo 0
-                            """,
+                        def podList = sh(
+                            script: "kubectl get pods -n ${NS} -l app=${RELEASE} -o custom-columns=NAME:.metadata.name,IMAGE:.spec.containers[*].image --no-headers",
                             returnStdout: true
-                        ).trim().toInteger()
-                        if (count > 0) {
-                            newPodFound = true
-                            break
+                        ).trim()
+
+                        podList.split("\n").each { line ->
+                            def (name, image) = line.tokenize(' ')
+                            if (image.contains("${BUILD_TAG}")) {
+                                newPodName = name
+                                return
+                            }
                         }
+                        if (newPodName) break
                         sleep(time: 5, unit: 'SECONDS')
                     }
 
-                    if (!newPodFound) {
-                        echo "⚠️ 在 3 分钟内未检测到任何新镜像的 Pod（tag=${BUILD_TAG})."
+                    if (!newPodName) {
+                        echo "⚠️ 在 3 分钟内未检测到任何新镜像 Pod（tag=${BUILD_TAG}）"
                         def action = input(
-                            message: "未检测到新 Pod 启动，选择下一步操作：",
+                            message: "未检测到新 Pod，选择操作：",
                             parameters: [choice(name: 'ACTION', choices: ['继续等待', '回滚'], description: '选择')]
                         )
                         if (action == '回滚') {
                             rollbackDeployment(RELEASE, NS)
-                            error("已回滚（因为未检测到新 Pod）")
+                            error("已回滚（未检测到新 Pod）")
                         } else {
-                            echo "继续等待中——你可以手工检查集群状态。"
-                            // 继续等待一次短时周期（5 分钟），然后再决定（简化处理）
+                            echo "继续等待人工处理"
                             timeout(time: 5, unit: 'MINUTES') {
                                 waitUntil {
-                                    def c = sh(
-                                        script: """
-                                            kubectl get pods -n ${NS} -l app=${RELEASE} -o jsonpath='{range .items[*]}{.status.containerStatuses[0].image}{"\\n"}{end}' \
-                                            | grep -c '${BUILD_TAG}' || echo 0
-                                        """, returnStdout: true
+                                    def count = sh(
+                                        script: "kubectl get pods -n ${NS} -l app=${RELEASE} -o custom-columns=NAME:.metadata.name,IMAGE:.spec.containers[*].image --no-headers | grep -c '${BUILD_TAG}' || echo 0",
+                                        returnStdout: true
                                     ).trim().toInteger()
-                                    return c > 0
+                                    return count > 0
+                                }
+                            }
+                            // 再次获取 Pod 名
+                            def podList = sh(
+                                script: "kubectl get pods -n ${NS} -l app=${RELEASE} -o custom-columns=NAME:.metadata.name,IMAGE:.spec.containers[*].image --no-headers",
+                                returnStdout: true
+                            ).trim()
+                            podList.split("\n").each { line ->
+                                def (name, image) = line.tokenize(' ')
+                                if (image.contains("${BUILD_TAG}")) {
+                                    newPodName = name
+                                    return
                                 }
                             }
                         }
                     }
 
-                    // 到此已检测到第一个新 Pod（或用户选择继续等待之后检测到）
-                    echo "检测到使用新镜像的 Pod，立即暂停 Deployment 的滚动更新以阻止继续替换其余 Pods"
+                    echo "检测到新 Pod: ${newPodName}，立即暂停 Deployment"
                     sh "kubectl rollout pause deployment/${RELEASE} -n ${NS}"
 
-                    // 获取新 Pod 名称（第一个匹配 BUILD_TAG 的 Pod）
-                    def newPodName = sh(
-                        script: """
-                            kubectl get pods -n ${NS} -l app=${RELEASE} -o jsonpath='{range .items[*]}{.metadata.name}::{.status.containerStatuses[0].image}{"\\n"}{end}' \
-                            | awk -F '::' '{if (index(\$2, "${BUILD_TAG}")) print \$1;}' | head -n1
-                        """,
-                        returnStdout: true
-                    ).trim()
-
-                    if (!newPodName) {
-                        echo "⚠️ 未能解析到新 Pod 名称（尽管检测到新镜像）。尝试继续并等待 Ready。"
-                    } else {
-                        echo "第一个新 Pod: ${newPodName}"
-                    }
-
-                    // 3) 等待该 Pod Ready（5 分钟超时）
+                    // 等待 Pod Ready
+                    echo "等待 Pod ${newPodName} Ready..."
                     def podReady = false
                     try {
                         timeout(time: 5, unit: 'MINUTES') {
                             waitUntil {
-                                def ready = 0
-                                if (newPodName) {
-                                    ready = sh(
-                                        script: "kubectl get pod ${newPodName} -n ${NS} -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo false",
-                                        returnStdout: true
-                                    ).trim()
-                                    return (ready == 'true')
-                                } else {
-                                    // 如果没有拿到 name，则通过 image 匹配至少有一个 ready 的 pod
-                                    def readyCount = sh(
-                                        script: """
-                                            kubectl get pods -n ${NS} -l app=${RELEASE} -o jsonpath='{range .items[*]}{.status.containerStatuses[0].image}::{.status.containerStatuses[0].ready}{"\\n"}{end}' \
-                                            | awk -F '::' '{if (index(\$1, "${BUILD_TAG}") && \$2==\"true\") print "ok"}' | wc -l
-                                        """,
-                                        returnStdout: true
-                                    ).trim().toInteger()
-                                    return readyCount > 0
-                                }
+                                def status = sh(
+                                    script: "kubectl get pod ${newPodName} -n ${NS} -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending",
+                                    returnStdout: true
+                                ).trim()
+                                return (status == 'Running')
                             }
                         }
                         podReady = true
-                    } catch (e) {
+                    } catch(e) {
                         podReady = false
-                        echo "❌ 新 Pod 未在 5 分钟内 Ready."
+                        echo "❌ 新 Pod 未在 5 分钟内 Running"
                     }
 
                     if (!podReady) {
                         def action = input(
-                            message: "新 Pod 在 5 分钟内未 Ready，选择操作：",
+                            message: "新 Pod 未 Ready，选择操作：",
                             parameters: [choice(name: 'ACTION', choices: ['回滚', '继续等待/人工处理'], description: '选择')]
                         )
                         if (action == '回滚') {
                             rollbackDeployment(RELEASE, NS)
-                            error("已回滚（因为新 Pod 未就绪）")
+                            error("已回滚")
                         } else {
-                            echo "你选择了继续等待/人工处理，请手动检查问题并在准备好后手动 resume（或在 Jenkins 中继续）。"
-                            // 保持 paused 状态，结束 pipeline（或继续由人工在集群上处理）
-                            error("暂停并等待人工处理（Deployment 保持 paused）")
+                            error("Deployment 保持 paused 状态，等待人工处理")
                         }
                     }
 
-                    echo "✅ 第一个新 Pod Ready 且通过检查。现在请确认是否继续更新剩余 Pod（恢复 rolling update）或回滚到上一版本。"
                     def userChoice = input(
-                        message: "第一个 Pod 已就绪，下一步：",
-                        parameters: [choice(name: 'ACTION', choices: ['继续更新（恢复并完成）', '回滚到上一版本'], description: '选择')]
+                        message: "第一个 Pod Ready，是否继续更新剩余 Pod 或回滚？",
+                        parameters: [choice(name: 'ACTION', choices: ['继续更新（恢复）', '回滚'], description: '选择')]
                     )
 
-                    if (userChoice == '回滚到上一版本') {
+                    if (userChoice == '回滚') {
                         rollbackDeployment(RELEASE, NS)
-                        error("已回滚到上一版本（用户选择）")
+                        error("已回滚到上一版本")
                     }
 
-                    // 若用户选择继续：恢复并等待完整滚动更新完成
-                    echo "▶️ 恢复 Deployment（rolling update），并等待所有 Pod 更新完成..."
+                    echo "▶️ 继续更新剩余 Pod..."
                     sh "kubectl rollout resume deployment/${RELEASE} -n ${NS}"
-
-                    // 等待 rollout 完成（设置合理 timeout）
-                    sh """
-                        kubectl rollout status deployment/${RELEASE} -n ${NS} --timeout=10m
-                    """
-
+                    sh "kubectl rollout status deployment/${RELEASE} -n ${NS} --timeout=10m"
                     echo "🎉 部署完成：所有 Pod 已更新到 ${BUILD_TAG}"
                 }
             }
