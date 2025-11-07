@@ -58,11 +58,12 @@ pipeline {
                             echo "找不到版本 ${selectedVersion}"
                             exit 1
                         fi
+                        helm rollback ${params.deployment_name} \$REVISION -n ${env.NAMESPACE}
                            PAUSED=\$(kubectl get deployment ${params.deployment_name} -n ${env.NAMESPACE} -o jsonpath='{.spec.paused}')
                         if [ "\$PAUSED" = "true" ]; then
                             kubectl rollout resume deployment/${params.deployment_name} -n ${env.NAMESPACE}
                         fi
-                        helm rollback ${params.deployment_name} \$REVISION -n ${env.NAMESPACE}
+                        
                         kubectl rollout status deployment/${params.deployment_name} -n ${env.NAMESPACE} --timeout=5m
                     """
                 }
@@ -185,16 +186,6 @@ pipeline {
 
                         // 回滚上一个版本
                         rollbackDeployment(params.deployment_name, env.NAMESPACE)
-
-                        // 恢复 Deployment pause 状态（如果被 pause）
-                        sh """
-                            PAUSED=\$(kubectl get deployment ${params.deployment_name} -n ${env.NAMESPACE} -o jsonpath='{.spec.paused}')
-                            if [ "\$PAUSED" = "true" ]; then
-                                echo "恢复暂停的 Deployment"
-                                kubectl rollout resume deployment/${params.deployment_name} -n ${env.NAMESPACE} || true
-                            fi
-                        """
-
                         error("Helm deploy 阶段中断，已回滚并恢复 Deployment")
                     }
                 }
@@ -202,81 +193,97 @@ pipeline {
         }
 
 
-        stage('等待pod') {
-            when { expression { params.DEPLOY_TYPE == 'Deploy' && env.REPLICAS.toInteger() > 0 } }
-            steps {
-                script {
-                    def RELEASE = params.deployment_name
-                    def NS = env.NAMESPACE
-                    def BUILD_TAG = env.BUILD_VERSION
-                    def newPodName = ''
-                    def pollStart = System.currentTimeMillis()
-                    def pollTimeoutMs = 3 * 60 * 1000
+            stage('等待pod') {
+                when { expression { params.DEPLOY_TYPE == 'Deploy' && env.REPLICAS.toInteger() > 0 } }
+                steps {
+                    script {
+                        try {
+                            def RELEASE = params.deployment_name
+                            def NS = env.NAMESPACE
+                            def BUILD_TAG = env.BUILD_VERSION
+                            def newPodName = ''
+                            def pollStart = System.currentTimeMillis()
+                            def pollTimeoutMs = 3 * 60 * 1000
 
-                    while ((System.currentTimeMillis() - pollStart) < pollTimeoutMs) {
-                        def podList = sh(
-                            script: "kubectl get pods -n ${NS} -l app=${RELEASE} -o custom-columns=NAME:.metadata.name,IMAGE:.spec.containers[*].image --no-headers",
-                            returnStdout: true
-                        ).trim()
-
-                        podList.split("\n").each { line ->
-                            def (name, image) = line.tokenize(' ')
-                            if (image.contains("${BUILD_TAG}")) {
-                                newPodName = name
-                                return
-                            }
-                        }
-                        if (newPodName) break
-                        sleep(time: 5, unit: 'SECONDS')
-                    }
-
-                    if (!newPodName) {
-                        def action = input(message: "3分钟内未检测到新 Pod，操作选择:", parameters: [choice(name:'ACTION', choices:['继续等待','回滚'], description:'')])
-                        if (action == '回滚') {
-                            rollbackDeployment(RELEASE, NS)
-                            error("已回滚（未检测到新 Pod）")
-                        }
-                    }
-
-                    echo "检测到新 Pod: ${newPodName}，暂停 Deployment"
-                    sh "kubectl rollout pause deployment/${RELEASE} -n ${NS}"
-                    env.CANARY_POD = newPodName
-
-                    def podReady = false
-                    try {
-                        timeout(time: 5, unit: 'MINUTES') {
-                            waitUntil {
-                                def ready = sh(
-                                    script: "kubectl get pod ${env.CANARY_POD} -n ${NS} -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo false",
+                            while ((System.currentTimeMillis() - pollStart) < pollTimeoutMs) {
+                                def podList = sh(
+                                    script: "kubectl get pods -n ${NS} -l app=${RELEASE} -o custom-columns=NAME:.metadata.name,IMAGE:.spec.containers[*].image --no-headers",
                                     returnStdout: true
                                 ).trim()
-                                return (ready == 'true')
-                            }
-                        }
-                        podReady = true
-                    } catch(e) {
-                        podReady = false
-                        echo "❌ 新 Pod 未在 5 分钟内 Ready"
-                    }
 
-                    if (!podReady) {
-                        def action = input(message:"新 Pod 未 Ready，操作选择:", parameters:[choice(name:'ACTION', choices:['回滚','人工处理'])])
-                        if (action == '回滚') {
-                            rollbackDeployment(RELEASE, NS)
-                            error("已回滚")
-                        } else {
-                            sh "kubectl rollout resume deployment/${RELEASE} -n ${NS}"
-                            error("人工处理退出")
+                                podList.split("\n").each { line ->
+                                    def (name, image) = line.tokenize(' ')
+                                    if (image.contains("${BUILD_TAG}")) {
+                                        newPodName = name
+                                        return
+                                    }
+                                }
+                                if (newPodName) break
+                                sleep(time: 5, unit: 'SECONDS')
+                            }
+
+                            if (!newPodName) {
+                                def action = input(
+                                    message: "3分钟内未检测到新 Pod，操作选择:",
+                                    parameters: [choice(name:'ACTION', choices:['继续等待','回滚'], description:'')]
+                                )
+                                if (action == '回滚') {
+                                    rollbackDeployment(RELEASE, NS)
+                                    error("已回滚（未检测到新 Pod）")
+                                }
+                            }
+
+                            echo "检测到新 Pod: ${newPodName}，暂停 Deployment"
+                            sh "kubectl rollout pause deployment/${RELEASE} -n ${NS}"
+                            env.CANARY_POD = newPodName
+
+                            def podReady = false
+                            try {
+                                timeout(time: 5, unit: 'MINUTES') {
+                                    waitUntil {
+                                        def ready = sh(
+                                            script: "kubectl get pod ${env.CANARY_POD} -n ${NS} -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo false",
+                                            returnStdout: true
+                                        ).trim()
+                                        return (ready == 'true')
+                                    }
+                                }
+                                podReady = true
+                            } catch(e) {
+                                podReady = false
+                                echo "❌ 新 Pod 未在 5 分钟内 Ready"
+                            }
+
+                            if (!podReady) {
+                                def action = input(
+                                    message:"新 Pod 未 Ready，操作选择:",
+                                    parameters:[choice(name:'ACTION', choices:['回滚','人工处理'])]
+                                )
+                                if (action == '回滚') {
+                                    rollbackDeployment(RELEASE, NS)
+                                    error("已回滚")
+                                } else {
+                                    sh "kubectl rollout resume deployment/${RELEASE} -n ${NS}"
+                                    error("人工处理退出")
+                                }
+                            }
+
+                        } catch (e) {
+                            // 捕获用户取消或任意异常，统一回滚
+                            echo "❌ 等待 Pod 阶段中断: ${e}"
+                            rollbackDeployment(params.deployment_name, env.NAMESPACE)
+                            error("Helm deploy 阶段中断，已回滚并恢复 Deployment")
                         }
                     }
                 }
-            }
-        }
+}
+
 
         stage('继续更新或者回滚') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' && env.REPLICAS.toInteger() > 0 } }
             steps {
                 script {
+                    try {
                     def RELEASE = params.deployment_name
                     def NS = env.NAMESPACE
                     def userChoice = input(
@@ -292,6 +299,12 @@ pipeline {
                     sh "kubectl rollout resume deployment/${RELEASE} -n ${NS}"
                     sh "kubectl rollout status deployment/${RELEASE} -n ${NS} --timeout=10m"
                     echo "🎉 部署完成：所有 Pod 已更新到 ${env.BUILD_VERSION}"
+                        } catch (e) {
+                            
+                            echo "❌ 继续部署失败: ${e}"
+                            rollbackDeployment(params.deployment_name, env.NAMESPACE)
+                            error("部署失败，已回滚并恢复 Deployment")
+                        }
                 }
             }
         }
@@ -324,9 +337,10 @@ def rollbackDeployment(String release, String ns) {
 
     if (prevRev) {
         echo "准备回滚到 revision ${prevRev}"
+        
         sh """
             helm rollback ${release} ${prevRev} -n ${ns}
-            kubectl rollout resume deployment/${release} -n ${ns}
+            kubectl rollout resume deployment/${params.deployment_name} -n ${env.NAMESPACE} || true
             kubectl rollout status deployment/${release} -n ${ns} --timeout=5m
         """
         echo "✅ 已回滚到 revision ${prevRev}"
