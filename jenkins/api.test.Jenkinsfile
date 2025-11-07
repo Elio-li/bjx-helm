@@ -78,9 +78,10 @@ pipeline {
                 script {
                     def dockerfileContent = """
                     FROM eclipse-temurin:8-jdk
-                    COPY ${env.jar_path}  /app/${params.SERVER_NAME}.jar
+                    COPY ${env.JAR_PATH} /app/urule.jar
                     WORKDIR /app
-                    ENTRYPOINT ["/app/${params.SERVER_NAME}.jar"]
+                    EXPOSE 8080
+                    ENTRYPOINT [ "/app/urule.jar"]
                     """.stripIndent()
                     writeFile file: 'Dockerfile', text: dockerfileContent
                     echo "✅ Dockerfile 已动态生成"
