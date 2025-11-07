@@ -289,30 +289,26 @@ pipeline {
 
 // ==================== 回滚函数 ====================
 def rollbackDeployment(String release, String ns) {
-    echo "开始回滚到上一个已部署版本..."
+    echo "开始回滚到上一成功版本..."
 
-    def deployedRevs = sh(
+    def prevRev = sh(
         script: """
             helm history ${release} -n ${ns} -o json \
-            | jq -r '.[] | select(.status=="deployed") | .revision' \
-            | sort -nr
+            | jq -r '[.[] | select(.status!="failed")] | .[-2].revision // empty'
         """,
         returnStdout: true
-    ).trim().split("\n").findAll { it }
+    ).trim()
 
-    if (deployedRevs.size() < 2) {
-        echo "没有可回滚的历史已部署版本"
-        return
+    if (prevRev) {
+        echo "准备回滚到 revision ${prevRev}"
+        sh """
+            helm rollback ${release} ${prevRev} -n ${ns}
+            kubectl rollout resume deployment/${release} -n ${ns}
+            kubectl rollout status deployment/${release} -n ${ns} --timeout=5m
+        """
+        echo "✅ 已回滚到 revision ${prevRev}"
+    } else {
+        echo "⚠️ 无可回滚的历史成功版本"
     }
-
-    def prevRev = deployedRevs[1]
-
-    sh """
-        helm rollback ${release} ${prevRev} -n ${ns}
-        kubectl rollout resume deployment/${release} -n ${ns}
-        kubectl rollout status deployment/${release} -n ${ns} --timeout=5m
-        
-    """
-
-    echo "已回滚到上一个 deployed 版本 revision ${prevRev}"
 }
+
