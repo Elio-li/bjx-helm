@@ -2,10 +2,10 @@ pipeline {
     agent any
 
     parameters {
-        choices(name: 'GIT_REPO', defaultValue: 'git@github.com:bjx-code-backend/tanzania_loan.git', description: 'Git仓库地址')
-        choices(name: 'BRANCH', defaultValue: 'dev_gh', description: 'Git 分支')
-        choices(name: 'SERVER_NAME', defaultValue: 'urule-springboot', description: '模块名称')
-        choices(name: 'deployment_name', defaultValue: 'urule-ghana', description: 'Deployment 名称')
+        choices(name: 'GIT_REPO', choices: 'git@github.com:bjx-code-backend/tanzania_loan.git', description: 'Git仓库地址')
+        choices(name: 'BRANCH', choices: 'dev_gh', description: 'Git 分支')
+        choices(name: 'SERVER_NAME', choices: 'urule-springboot', description: '模块名称')
+        choices(name: 'deployment_name', choices: 'urule-ghana', description: 'Deployment 名称')
         choice(name: 'DEPLOY_TYPE', choices: ['Deploy', 'Rollback'], description: 'Deploy=部署新版本，Rollback=回滚')
     }
 
