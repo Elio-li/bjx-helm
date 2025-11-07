@@ -28,7 +28,7 @@ pipeline {
     }
 
     stages {
-        stage('Rollback Check') {
+        stage('版本回滚') {
             when { expression { params.DEPLOY_TYPE == 'Rollback' } }
             steps {
                 script {
@@ -59,6 +59,7 @@ pipeline {
                             echo "找不到版本 ${selectedVersion}"
                             exit 1
                         fi
+                        kubectl rollout resume deployment/${release} -n ${env.NAMESPACE}
                         helm rollback ${params.deployment_name} \$REVISION -n ${env.NAMESPACE}
                         kubectl rollout status deployment/${params.deployment_name} -n ${env.NAMESPACE} --timeout=5m
                     """
@@ -66,7 +67,7 @@ pipeline {
             }
         }
 
-        stage('Checkout') {
+        stage('代码拉取') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
                 checkout([$class: 'GitSCM',
@@ -81,7 +82,7 @@ pipeline {
             }
         }
 
-        stage('Build Jar') {
+        stage('MVN打包') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
                 sh """
@@ -91,11 +92,15 @@ pipeline {
                     sed -i 's|urule.mysql.username=root|urule.mysql.username=admin|' urule-springboot/src/main/resources/ghana/application-dev.properties
                     sed -i 's|urule.mysql.password=9skLyjBrvnqmCltkeqrazfqfoxc20:|urule.mysql.password=D4mFXq5fscAFh4tf49v6|' urule-springboot/src/main/resources/ghana/application-dev.properties
                     #mvn clean install -pl ${params.SERVER_NAME} -am -Dmaven.test.skip=true
+                    
                 """
+                steps {
+                    archiveArtifacts artifacts: "${env.JAR_PATH}", fingerprint: true
+                   }
             }
         }
 
-        stage('Generate Dockerfile') {
+        stage('制作Dockerfile') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
                 script {
@@ -112,7 +117,7 @@ pipeline {
             }
         }
 
-        stage('Build & Push Image') {
+        stage('打包镜像') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
                 withCredentials([usernamePassword(
@@ -130,14 +135,8 @@ pipeline {
             }
         }
 
-        stage('Archive Jar') {
-            when { expression { params.DEPLOY_TYPE == 'Deploy' } }
-            steps {
-                archiveArtifacts artifacts: "${env.JAR_PATH}", fingerprint: true
-            }
-        }
 
-        stage('Helm Pre-Check') {
+        stage('Helm检查') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
                 script {
@@ -168,7 +167,7 @@ pipeline {
             }
         }
 
-        stage('Helm Upgrade / Install') {
+        stage('Helm deploy') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
                 script {
@@ -189,7 +188,7 @@ pipeline {
             }
         }
 
-        stage('Canary Pod Wait') {
+        stage('等待pod') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' && env.REPLICAS.toInteger() > 0 } }
             steps {
                 script {
@@ -230,10 +229,6 @@ pipeline {
                     env.CANARY_POD = newPodName
                 }
             }
-        }
-
-        stage('Canary Pod Ready Check') {
-            when { expression { params.DEPLOY_TYPE == 'Deploy' && env.REPLICAS.toInteger() > 0 } }
             steps {
                 script {
                     def RELEASE = params.deployment_name
@@ -271,7 +266,9 @@ pipeline {
             }
         }
 
-        stage('Manual Confirmation & Full Update') {
+
+
+        stage('继续更新或者回滚') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' && env.REPLICAS.toInteger() > 0 } }
             steps {
                 script {
