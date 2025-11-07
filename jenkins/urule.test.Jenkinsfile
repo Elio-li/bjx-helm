@@ -166,21 +166,41 @@ pipeline {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
                 script {
-                    def RELEASE = params.deployment_name
-                    def NS = env.NAMESPACE
-                    def CHART_DIR = env.CHAT_DIR
-                    def VALUES_FILE = "${CHART_DIR}/urule-ghana-test.yaml"
+                    try {
+                        def RELEASE = params.deployment_name
+                        def NS = env.NAMESPACE
+                        def CHART_DIR = env.CHAT_DIR
+                        def VALUES_FILE = "${CHART_DIR}/urule-ghana-test.yaml"
 
-                    if (env.IS_FIRST_DEPLOY.toBoolean() || env.REPLICAS.toInteger() <= 0) {
-                        echo "首次部署或副本数为0，全量部署"
-                        sh "helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS} --wait --timeout=10m"
-                    } else {
-                        echo "Deployment存在，触发滚动更新（不等待全部 Ready）"
-                        sh "helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS} --timeout=5m"
+                        if (env.IS_FIRST_DEPLOY.toBoolean() || env.REPLICAS.toInteger() <= 0) {
+                            echo "首次部署或副本数为0，全量部署"
+                            sh "helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS} --wait --timeout=10m"
+                        } else {
+                            echo "Deployment存在，触发滚动更新（不等待全部 Ready）"
+                            sh "helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS} --timeout=5m"
+                        }
+
+                    } catch (err) {
+                        echo "❌ Helm deploy 阶段被取消或失败: ${err}"
+
+                        // 回滚上一个版本
+                        rollbackDeployment(params.deployment_name, env.NAMESPACE)
+
+                        // 恢复 Deployment pause 状态（如果被 pause）
+                        sh """
+                            PAUSED=\$(kubectl get deployment ${params.deployment_name} -n ${env.NAMESPACE} -o jsonpath='{.spec.paused}')
+                            if [ "\$PAUSED" = "true" ]; then
+                                echo "恢复暂停的 Deployment"
+                                kubectl rollout resume deployment/${params.deployment_name} -n ${env.NAMESPACE} || true
+                            fi
+                        """
+
+                        error("Helm deploy 阶段中断，已回滚并恢复 Deployment")
                     }
                 }
             }
         }
+
 
         stage('等待pod') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' && env.REPLICAS.toInteger() > 0 } }
