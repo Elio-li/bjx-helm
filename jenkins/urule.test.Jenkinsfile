@@ -106,10 +106,11 @@ pipeline {
                 script {
                     def dockerfile = """
                     FROM eclipse-temurin:8-jdk
-                    COPY ${env.JAR_PATH} /app/urule.jar
+                    RUN echo '#!/bin/bash\nexec /app/urule.jar "$@"' > /app/start.sh \
+                        && chmod +x /app/start.sh
                     WORKDIR /app
                     EXPOSE 8080
-                    ENTRYPOINT ["sh", "-c", "exec /app/urule.jar"]
+                    ENTRYPOINT ["/app/start.sh"]
                     """.stripIndent()
                     writeFile file: 'Dockerfile', text: dockerfile
                     echo "Dockerfile 已生成"
