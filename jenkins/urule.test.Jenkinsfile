@@ -192,6 +192,7 @@ pipeline {
             when { expression { params.DEPLOY_TYPE == 'Deploy' && env.REPLICAS.toInteger() > 0 } }
             steps {
                 script {
+                    // 第一段逻辑：等待 Pod 出现
                     def RELEASE = params.deployment_name
                     def NS = env.NAMESPACE
                     def BUILD_TAG = env.BUILD_VERSION
@@ -227,15 +228,10 @@ pipeline {
                     echo "检测到新 Pod: ${newPodName}，暂停 Deployment"
                     sh "kubectl rollout pause deployment/${RELEASE} -n ${NS}"
                     env.CANARY_POD = newPodName
-                }
-            }
-            steps {
-                script {
-                    def RELEASE = params.deployment_name
-                    def NS = env.NAMESPACE
+
+                    // 第二段逻辑：等待 Pod Ready
                     def newPod = env.CANARY_POD
                     def podReady = false
-
                     try {
                         timeout(time: 5, unit: 'MINUTES') {
                             waitUntil {
@@ -264,7 +260,8 @@ pipeline {
                     }
                 }
             }
-        }
+}
+
 
 
 
