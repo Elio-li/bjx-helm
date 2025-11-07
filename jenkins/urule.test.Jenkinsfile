@@ -58,8 +58,11 @@ pipeline {
                             echo "找不到版本 ${selectedVersion}"
                             exit 1
                         fi
+                           PAUSED=\$(kubectl get deployment ${params.deployment_name} -n ${env.NAMESPACE} -o jsonpath='{.spec.paused}')
+                        if [ "\$PAUSED" = "true" ]; then
+                            kubectl rollout resume deployment/${params.deployment_name} -n ${env.NAMESPACE}
+                        fi
                         helm rollback ${params.deployment_name} \$REVISION -n ${env.NAMESPACE}
-                        kubectl rollout resume deployment/${params.deployment_name} -n ${env.NAMESPACE} 
                         kubectl rollout status deployment/${params.deployment_name} -n ${env.NAMESPACE} --timeout=5m
                     """
                 }
