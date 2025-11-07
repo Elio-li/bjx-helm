@@ -2,26 +2,20 @@ pipeline {
     agent any
 
     parameters {
-        gitParameter(
-            name: 'BRANCH',
-            type: 'PT_BRANCH', 
-            defaultValue: 'dev_gh', 
-            description: '选择要部署的 Git 分支',
-            branch: '', 
-            useRepository: 'git@github.com:bjx-code-backend/tanzania_loan.git'
-        )
-        string(name: 'SERVER_NAME', defaultValue: 'urule-springboot', description: '模块名称')
-        string(name: 'deployment_name', defaultValue: 'urule-ghana', description: 'Deployment 名称')
-        choice(name: 'DEPLOY_TYPE', choices: ['Deploy', 'Rollback'], description: '操作类型：Deploy=部署新版本，Rollback=回滚')
+        choices(name: 'GIT_REPO', defaultValue: 'git@github.com:bjx-code-backend/tanzania_loan.git', description: 'Git仓库地址')
+        choices(name: 'BRANCH', defaultValue: 'dev_gh', description: 'Git 分支')
+        choices(name: 'SERVER_NAME', defaultValue: 'urule-springboot', description: '模块名称')
+        choices(name: 'deployment_name', defaultValue: 'urule-ghana', description: 'Deployment 名称')
+        choice(name: 'DEPLOY_TYPE', choices: ['Deploy', 'Rollback'], description: 'Deploy=部署新版本，Rollback=回滚')
     }
 
     environment {
         REGISTRY = 'harbor.bjxsre.com'
         PROJECT  = 'bjx-ghana-test'
         GIT_REPO = 'git@github.com:bjx-code-backend/tanzania_loan.git'
-        BUILD_VERSION = "${params.BRANCH.replaceFirst(/^origin\\//,'')}-${env.BUILD_NUMBER}"
+        BUILD_VERSION = "${params.BRANCH}-${env.BUILD_NUMBER}"
         IMAGE_FULL = "${REGISTRY}/${PROJECT}/${params.deployment_name}:${BUILD_VERSION}"
- 
+        
         CHAT_DIR = "./bjx-helm/charts/urule"
         JAR_PATH = "urule-springboot/target/urule.jar"
         NAMESPACE = "ghana"
@@ -70,18 +64,13 @@ pipeline {
             }
         }
 
-        stage('代码拉取') {
+
+        stage('Checkout') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
-                checkout([$class: 'GitSCM',
-                    branches: [[name: "${params.BRANCH.startsWith('origin/') ? params.BRANCH : "*/${params.BRANCH}"}"]],
-                    doGenerateSubmoduleConfigurations: false,
-                    extensions: [],
-                    userRemoteConfigs: [[
-                        url: "${env.GIT_REPO}",
-                        credentialsId: 'GIT_CREDENTIALS'
-                    ]]
-                ])
+                git branch: "${params.BRANCH}",
+                    credentialsId: 'GIT_CREDENTIALS',
+                    url: "${params.GIT_REPO}"
             }
         }
 
@@ -105,13 +94,12 @@ pipeline {
             steps {
                 script {
                     def dockerfile = """
-                        FROM eclipse-temurin:8-jdk
-                        COPY ${env.JAR_PATH} /app/urule.jar
-                        WORKDIR /app
-                        EXPOSE 8080
-                        RUN echo '#!/bin/bash\\nexec /app/urule.jar "\\$@"' > /app/start.sh \\
-                            && chmod +x /app/start.sh
-                        ENTRYPOINT ["/app/start.sh"]
+                            FROM eclipse-temurin:8-jdk
+                            COPY \$\{env.JAR_PATH} /app/urule.jar
+                            WORKDIR /app
+                            EXPOSE 8080
+                            RUN echo '#!/bin/bash\\nexec /app/urule.jar "\\$@"' > /app/start.sh && chmod +x /app/start.sh
+                            ENTRYPOINT ["/app/start.sh"]
                     """.stripIndent()
                     writeFile file: 'Dockerfile', text: dockerfile
                     echo "Dockerfile 已生成"
