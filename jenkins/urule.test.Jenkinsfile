@@ -41,7 +41,6 @@ pipeline {
                         returnStdout: true
                     ).trim().split("\\n").findAll { it }.reverse()
 
-
                     if (versions.isEmpty()) {
                         error "没有可回滚的历史版本！"
                     }
@@ -60,7 +59,7 @@ pipeline {
                             exit 1
                         fi
                         helm rollback ${params.deployment_name} \$REVISION -n ${env.NAMESPACE}
-                        kubectl rollout resume deployment/${release} -n ${env.NAMESPACE}
+                        kubectl rollout resume deployment/${params.deployment_name} -n ${env.NAMESPACE}
                         kubectl rollout status deployment/${params.deployment_name} -n ${env.NAMESPACE} --timeout=5m
                     """
                 }
@@ -92,11 +91,8 @@ pipeline {
                     sed -i 's|urule.mysql.username=root|urule.mysql.username=admin|' urule-springboot/src/main/resources/ghana/application-dev.properties
                     sed -i 's|urule.mysql.password=9skLyjBrvnqmCltkeqrazfqfoxc20:|urule.mysql.password=D4mFXq5fscAFh4tf49v6|' urule-springboot/src/main/resources/ghana/application-dev.properties
                     #mvn clean install -pl ${params.SERVER_NAME} -am -Dmaven.test.skip=true
-                    
                 """
-                steps {
-                    archiveArtifacts artifacts: "${env.JAR_PATH}", fingerprint: true
-                   }
+                archiveArtifacts artifacts: "${env.JAR_PATH}", fingerprint: true
             }
         }
 
@@ -135,7 +131,6 @@ pipeline {
             }
         }
 
-
         stage('Helm检查') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' } }
             steps {
@@ -146,17 +141,14 @@ pipeline {
                     def VALUES_FILE = "${CHART_DIR}/urule-ghana-test.yaml"
                     def BUILD_TAG = env.BUILD_VERSION
 
-                    // 更新 values & Chart appVersion
                     sh """
                         sed -i "s|^  tag:.*|  tag: ${BUILD_TAG}|" ${VALUES_FILE}
                         sed -i "s|^appVersion:.*|appVersion: \\"${BUILD_TAG}\\"|" ${CHART_DIR}/Chart.yaml
                     """
 
-                    // 检查 Deployment 是否存在
                     def exists = sh(script: "kubectl get deploy ${RELEASE} -n ${NS} >/dev/null 2>&1 && echo true || echo false", returnStdout: true).trim()
                     env.IS_FIRST_DEPLOY = (exists != 'true').toString()
 
-                    // 获取副本数
                     if (!env.IS_FIRST_DEPLOY.toBoolean()) {
                         def replicas = sh(script: "kubectl get deploy ${RELEASE} -n ${NS} -o jsonpath='{.spec.replicas}' || echo 0", returnStdout: true).trim()
                         env.REPLICAS = replicas ?: '0'
@@ -179,7 +171,6 @@ pipeline {
                     if (env.IS_FIRST_DEPLOY.toBoolean() || env.REPLICAS.toInteger() <= 0) {
                         echo "首次部署或副本数为0，全量部署"
                         sh "helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS} --wait --timeout=10m"
-                        echo "部署完成"
                     } else {
                         echo "Deployment存在，触发滚动更新（不等待全部 Ready）"
                         sh "helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS} --timeout=5m"
@@ -192,7 +183,6 @@ pipeline {
             when { expression { params.DEPLOY_TYPE == 'Deploy' && env.REPLICAS.toInteger() > 0 } }
             steps {
                 script {
-                    // 第一段逻辑：等待 Pod 出现
                     def RELEASE = params.deployment_name
                     def NS = env.NAMESPACE
                     def BUILD_TAG = env.BUILD_VERSION
@@ -229,14 +219,12 @@ pipeline {
                     sh "kubectl rollout pause deployment/${RELEASE} -n ${NS}"
                     env.CANARY_POD = newPodName
 
-                    // 第二段逻辑：等待 Pod Ready
-                    def newPod = env.CANARY_POD
                     def podReady = false
                     try {
                         timeout(time: 5, unit: 'MINUTES') {
                             waitUntil {
                                 def ready = sh(
-                                    script: "kubectl get pod ${newPod} -n ${NS} -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo false",
+                                    script: "kubectl get pod ${env.CANARY_POD} -n ${NS} -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo false",
                                     returnStdout: true
                                 ).trim()
                                 return (ready == 'true')
@@ -260,10 +248,7 @@ pipeline {
                     }
                 }
             }
-}
-
-
-
+        }
 
         stage('继续更新或者回滚') {
             when { expression { params.DEPLOY_TYPE == 'Deploy' && env.REPLICAS.toInteger() > 0 } }
@@ -292,7 +277,6 @@ pipeline {
 
     post {
         always {
-            
             echo "构建完成：${env.IMAGE_FULL}"
         }
         success {
