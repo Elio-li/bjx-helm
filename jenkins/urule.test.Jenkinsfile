@@ -312,7 +312,11 @@ pipeline {
 
     post {
         always {
-            echo "构建完成：${env.IMAGE_FULL}"
+            script {
+                if (params.DEPLOY_TYPE == 'Deploy') {
+                    echo "构建完成：${env.IMAGE_FULL}"
+                }
+            }
         }
         success {
             echo "部署成功！"
