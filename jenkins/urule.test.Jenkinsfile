@@ -35,7 +35,7 @@ pipeline {
                     def versions = sh(
                         script: """
                             helm history ${params.deployment_name} -n ${env.NAMESPACE} -o json \
-                            | jq -r '.[] | select(.status=="deployed") | .app_version' \
+                            | jq -r '.[] | select(.status=="superseded") | .app_version' \
                             | grep -v null
                         """,
                         returnStdout: true
@@ -59,7 +59,7 @@ pipeline {
                             exit 1
                         fi
                         helm rollback ${params.deployment_name} \$REVISION -n ${env.NAMESPACE}
-                        kubectl rollout resume deployment/${params.deployment_name} -n ${env.NAMESPACE}
+                        kubectl rollout resume deployment/${params.deployment_name} -n ${env.NAMESPACE} 
                         kubectl rollout status deployment/${params.deployment_name} -n ${env.NAMESPACE} --timeout=5m
                     """
                 }
@@ -272,7 +272,6 @@ pipeline {
                 }
             }
         }
-
     }
 
     post {
@@ -290,20 +289,30 @@ pipeline {
 
 // ==================== 回滚函数 ====================
 def rollbackDeployment(String release, String ns) {
-    echo "开始回滚到上一版本..."
-    def prevRev = sh(
-        script: "helm history ${release} -n ${ns} -o json | jq -r '.[-2].revision // empty'",
-        returnStdout: true
-    ).trim()
+    echo "开始回滚到上一个已部署版本..."
 
-    if (prevRev) {
-        sh """
-            helm rollback ${release} ${prevRev} -n ${ns}
-            kubectl rollout status deployment/${release} -n ${ns} --timeout=5m
-            kubectl rollout resume deployment/${release} -n ${ns}
-        """
-        echo "已回滚到 revision ${prevRev}"
-    } else {
-        echo "无历史版本可回滚"
+    def deployedRevs = sh(
+        script: """
+            helm history ${release} -n ${ns} -o json \
+            | jq -r '.[] | select(.status=="deployed") | .revision' \
+            | sort -nr
+        """,
+        returnStdout: true
+    ).trim().split("\n").findAll { it }
+
+    if (deployedRevs.size() < 2) {
+        echo "没有可回滚的历史已部署版本"
+        return
     }
+
+    def prevRev = deployedRevs[1]
+
+    sh """
+        helm rollback ${release} ${prevRev} -n ${ns}
+        kubectl rollout resume deployment/${release} -n ${ns}
+        kubectl rollout status deployment/${release} -n ${ns} --timeout=5m
+        
+    """
+
+    echo "已回滚到上一个 deployed 版本 revision ${prevRev}"
 }
