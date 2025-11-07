@@ -48,7 +48,7 @@ pipeline {
                     echo "可回滚版本：\n${versions.join('\n')}"
 
                     def selectedVersion = input(
-                        message: "请选择要回滚的 appVersion",
+                        message: "请选择要回滚的版本",
                         parameters: [choice(name: 'APP_VERSION', choices: versions, description: '历史版本')]
                     )
 
@@ -177,7 +177,7 @@ pipeline {
                             echo "首次部署或副本数为0，全量部署"
                             sh "helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS} --wait --timeout=10m"
                         } else {
-                            echo "Deployment存在，触发滚动更新（不等待全部 Ready）"
+                            echo "Deployment存在，触发滚动更新"
                             sh "helm upgrade --install ${RELEASE} ${CHART_DIR} -f ${VALUES_FILE} --namespace ${NS} --timeout=5m"
                         }
 
@@ -224,7 +224,7 @@ pipeline {
 
                             if (!newPodName) {
                                 def action = input(
-                                    message: "3分钟内未检测到新 Pod，操作选择:",
+                                    message: "3分钟内未检测到新 Pod，请选择:",
                                     parameters: [choice(name:'ACTION', choices:['继续等待','回滚'], description:'')]
                                 )
                                 if (action == '回滚') {
@@ -256,7 +256,7 @@ pipeline {
 
                             if (!podReady) {
                                 def action = input(
-                                    message:"新 Pod 未 Ready，操作选择:",
+                                    message:"新 Pod 未 Ready，请选择:",
                                     parameters:[choice(name:'ACTION', choices:['回滚','人工处理'])]
                                 )
                                 if (action == '回滚') {
