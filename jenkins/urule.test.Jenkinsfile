@@ -59,8 +59,8 @@ pipeline {
                             echo "找不到版本 ${selectedVersion}"
                             exit 1
                         fi
-                        kubectl rollout resume deployment/${release} -n ${env.NAMESPACE}
                         helm rollback ${params.deployment_name} \$REVISION -n ${env.NAMESPACE}
+                        kubectl rollout resume deployment/${release} -n ${env.NAMESPACE}
                         kubectl rollout status deployment/${params.deployment_name} -n ${env.NAMESPACE} --timeout=5m
                     """
                 }
@@ -286,7 +286,7 @@ pipeline {
                     echo "🎉 部署完成：所有 Pod 已更新到 ${env.BUILD_VERSION}"
                 }
             }
-}
+        }
 
     }
 
